@@ -2,6 +2,7 @@ fastapi==0.115.0
 uvicorn==0.32.0
 sqlalchemy==2.0.35
 pydantic==2.9.2
+pydantic[email]
 pydantic-settings==2.5.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
@@ -17,3 +18,7 @@ onnxruntime-gpu==1.19.0
 opencv-python-headless==4.10.0.84
 pillow==10.4.0
 python-dotenv==1.0.1
+safetensors==0.4.5
+sentencepiece==0.2.0
+bcrypt==4.0.1
+requests==2.32.3

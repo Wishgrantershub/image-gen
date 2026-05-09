@@ -1,11 +1,12 @@
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import StoryPage
 
 router = APIRouter(prefix="/api/images", tags=["Images"])
+
 
 @router.get("/{page_id}")
 def get_image(page_id: int, db: Session = Depends(get_db)):
