@@ -290,7 +290,6 @@ async def create_comic_anonymous(
     )
     if not book:
         seed_styles_endpoint(db=db)
-        db.refresh(db)
         book = (
             db.query(Book)
             .filter(Book.comic_style_id == style_id, Book.is_comic == True)  # noqa: E712
