@@ -25,6 +25,7 @@ venv/
 venv_windows/
 env/
 .venv
+.env
 
 # IDE
 .vscode/
@@ -65,3 +66,22 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Windows command-line artifacts (created by `> nul` redirects on Windows)
+nul
+app/nul
+
+# Local test artifacts (comic PDFs generated during dev/smoke tests)
+comicme_*.pdf
+*.pdf
+!docs/**/*.pdf
+
+# Deployment CLI caches
+.vercel/
+.railway/
+
+# Assistant / agent working files
+.claude/
+.clinerules*
+AGENTS.md
+.cursor/

@@ -1,0 +1,42 @@
+{
+  "layout_type": "action",
+  "style": "manga",
+  "tier": "basic",
+  "page_size": [1200, 1600],
+  "page_bg": "#FAF7EE",
+  "page_bg_pattern": "screentone",
+  "screentone_dot_color": "#C9C5B5",
+  "screentone_dot_size": 2,
+  "screentone_spacing": 8,
+  "border_color": "#0A0A0A",
+  "border_width": 5,
+  "panel_border_radius": 0,
+  "header": {
+    "height": 100,
+    "title_size": 40,
+    "subtitle_size": 16,
+    "title_color": "#0A0A0A",
+    "subtitle_color": "#5A5A5A",
+    "show_subtitle": true
+  },
+  "footer": {
+    "height": 50,
+    "text": "MADE WITH COMICME - TURN ANYONE INTO A COMIC HERO",
+    "color": "#0A0A0A",
+    "size": 14
+  },
+  "margin_x": 50,
+  "margin_top": 50,
+  "margin_bottom": 40,
+  "gutter": 12,
+  "narration_box_style": "manga_slab",
+  "show_page_number": false,
+  "panels": [
+    {"x": 50,  "y": 170,  "w": 1100, "h": 420, "shape": "rect", "zoom": "cover"},
+    {"x": 50,  "y": 602,  "w": 376,  "h": 350, "shape": "rect", "zoom": "cover"},
+    {"x": 438, "y": 602,  "w": 320,  "h": 350, "shape": "rect", "zoom": "cover"},
+    {"x": 770, "y": 602,  "w": 380,  "h": 350, "shape": "rect", "zoom": "cover"},
+    {"x": 50,  "y": 964,  "w": 720,  "h": 538, "shape": "rect", "zoom": "cover"},
+    {"x": 782, "y": 964,  "w": 368,  "h": 538, "shape": "rect", "zoom": "cover"}
+  ]
+}

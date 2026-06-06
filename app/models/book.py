@@ -20,4 +20,14 @@ class Book(Base):
     character_base = Column(String, nullable=True)
     background_consistency = Column(Boolean, default=True)
 
+    is_comic = Column(Boolean, default=False)
+    comic_style_id = Column(String, nullable=True, index=True)
+    style_suffix = Column(Text, nullable=True)
+    bubble_style = Column(String, nullable=True)
+    border_color = Column(String, nullable=True)
+    border_width = Column(Integer, nullable=True)
+    default_panel_count = Column(Integer, nullable=True)
+    palette = Column(JSON, nullable=True)
+    sample_premises = Column(JSON, nullable=True)
+
     stories = relationship("Story", back_populates="book")
