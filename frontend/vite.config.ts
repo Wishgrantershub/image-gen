@@ -12,6 +12,12 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Force-enable Nitro with the Vercel preset. Without this, the Lovable plugin
+  // auto-detects "no Lovable context" and skips Nitro entirely, which means
+  // Vercel finds no .output/ directory and the deploy fails.
+  nitro: {
+    preset: "vercel",
+  },
   vite: {
     css: {
       transformer: "postcss",
