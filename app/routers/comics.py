@@ -45,6 +45,7 @@ _optional_current_user_dep = get_current_user_optional
 from app.services.comic_service import (
     comic_generation_service,
     make_share_token,
+    _generate_cool_title,
 )
 from app.services.comic_styles import (
     COMIC_STYLES,
@@ -62,6 +63,7 @@ logger = logging.getLogger("comicme.comics")
 
 
 def _serialize_comic(story: Story) -> ComicResponse:
+    share_token = (story.share_token or "").strip()
     panels: List[ComicPanelOut] = []
     for p in sorted(story.pages, key=lambda x: x.page_number):
         caption = ""
@@ -79,7 +81,11 @@ def _serialize_comic(story: Story) -> ComicResponse:
                 caption=caption,
                 speech=speech,
                 bubble_kind=bubble_kind,
-                image_url=f"/api/comics/{story.id}/panels/{p.id}",
+                image_url=(
+                    f"/api/comics/by-token/{share_token}/panels/{p.page_number}"
+                    if share_token
+                    else f"/api/comics/{story.id}/panels/{p.id}"
+                ),
                 image_path=p.image_path,
             )
         )
@@ -100,9 +106,17 @@ def _serialize_comic(story: Story) -> ComicResponse:
         progress_message=story.progress_message,
         progress_pct=story.progress_pct or 0,
         error_message=story.error_message,
-        cover_url=f"/api/comics/{story.id}/cover" if story.cover_path else None,
-        pdf_url=f"/api/comics/{story.id}/pdf" if story.pdf_path else None,
-        share_url=f"/c/{story.share_token}" if story.share_token else f"/c/{story.id}",
+        cover_url=(
+            f"/api/comics/by-token/{share_token}/cover"
+            if (story.cover_path and share_token)
+            else (f"/api/comics/{story.id}/cover" if story.cover_path else None)
+        ),
+        pdf_url=(
+            f"/api/comics/by-token/{share_token}/pdf"
+            if (story.pdf_path and share_token)
+            else (f"/api/comics/{story.id}/pdf" if story.pdf_path else None)
+        ),
+        share_url=f"/c/{share_token}" if share_token else f"/c/{story.id}",
         panels=panels,
         is_paid=is_paid,
         payment_required=settings.RAZORPAY_ENABLED and not is_paid,
@@ -242,6 +256,7 @@ async def create_comic_anonymous(
     tier_id: str = Form(...),
     premise: str = Form(...),
     title: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
     payment_verified: bool = Form(False),
     razorpay_payment_id: Optional[str] = Form(None),
     razorpay_order_id: Optional[str] = Form(None),
@@ -263,6 +278,10 @@ async def create_comic_anonymous(
     if not premise or len(premise.strip()) < 3:
         raise HTTPException(
             status_code=400, detail="Premise must be at least 3 characters"
+        )
+    if not email or "@" not in (email or ""):
+        raise HTTPException(
+            status_code=400, detail="A valid email is required to deliver your comic"
         )
 
     if settings.RAZORPAY_ENABLED:
@@ -344,6 +363,7 @@ async def create_comic_anonymous(
     db.refresh(child)
 
     session_token = (x_session_token or "").strip() or None
+    customer_email = (email or "").strip().lower() or None
     story = Story(
         user_id=guest.id,
         child_id=child.id,
@@ -354,11 +374,12 @@ async def create_comic_anonymous(
         title=(
             title.strip()
             if title
-            else f"{name or 'Hero'}'s {COMIC_STYLES[style_id]['name']} Adventure"
+            else _generate_cool_title(name or "Hero", style_id, premise)
         ),
         status=StoryStatus.GENERATING,
         share_token=make_share_token(),
         session_token=session_token,
+        customer_email=customer_email,
         progress_pct=0,
         progress_step="queued",
         progress_message="Queued for generation",
@@ -448,7 +469,7 @@ def create_comic(
         tier=req.tier_id,
         title=req.title.strip()
         if req.title
-        else f"{child.name}'s {COMIC_STYLES[req.style_id]['name']} Adventure",
+        else _generate_cool_title(child.name, req.style_id, req.premise),
         status=StoryStatus.GENERATING,
         share_token=make_share_token(),
         session_token=session_token,
@@ -613,6 +634,9 @@ def get_comic_pdf(
 ):
     """Stream the comic PDF, gated by session OR auth and by payment.
 
+    If the PDF file is missing from disk (e.g. failed build, deleted), it is
+    rebuilt on-demand from the stored panel images and cover.
+
     Authorization:
       - Logged-in user who owns the story → allowed.
       - Session token matching ``Story.session_token`` → allowed.
@@ -627,8 +651,6 @@ def get_comic_pdf(
     story = db.query(Story).filter(Story.id == comic_id, Story.is_comic == 1).first()
     if not story:
         raise HTTPException(status_code=404, detail="Comic not found")
-    if not story.pdf_path or not os.path.exists(story.pdf_path):
-        raise HTTPException(status_code=404, detail="PDF not ready")
 
     session_token = (x_session_token or "").strip()
     owns_by_user = current_user is not None and story.user_id == current_user.id
@@ -656,11 +678,128 @@ def get_comic_pdf(
             },
         )
 
+    if (
+        not story.pdf_path
+        or not os.path.exists(story.pdf_path)
+        or os.path.getsize(story.pdf_path) == 0
+    ):
+        pdf_path = _rebuild_pdf(story, db)
+        if pdf_path is None:
+            raise HTTPException(status_code=404, detail="PDF not ready")
+        story.pdf_path = pdf_path
+        db.commit()
+
     return FileResponse(
         story.pdf_path,
         media_type="application/pdf",
         filename=f"comicme_{story.id}.pdf",
     )
+
+
+def _rebuild_pdf(story: Story, db: Session) -> Optional[str]:
+    """Rebuild a comic PDF on-demand from stored panel images + cover."""
+    try:
+        from app.services.pdf_builder import build_pdf
+        from app.services.comic_styles import get_style, get_tier
+        from app.services.page_template import load_layout
+
+        if (
+            story.pdf_path
+            and os.path.exists(story.pdf_path)
+            and os.path.getsize(story.pdf_path) == 0
+        ):
+            try:
+                os.remove(story.pdf_path)
+            except OSError:
+                pass
+
+        style_id = (story.book.comic_style_id if story.book else "") or "manga"
+        style = get_style(style_id)
+        tier_id = story.tier or "basic"
+
+        pages = sorted(story.pages, key=lambda x: x.page_number)
+        panel_paths = [
+            p.image_path for p in pages if p.image_path and os.path.exists(p.image_path)
+        ]
+        if not panel_paths:
+            logger.warning("[pdf rebuild] story=%s no panel images found", story.id)
+            return None
+
+        cover_path = (
+            story.cover_path
+            if story.cover_path and os.path.exists(story.cover_path)
+            else None
+        )
+        share_url = f"https://comicme.app/c/{story.share_token or story.id}"
+
+        try:
+            layout_cfg = load_layout(style["id"], tier_id)
+            panels_per_page = len(layout_cfg.get("panels", [])) or len(panel_paths)
+        except Exception:
+            panels_per_page = len(panel_paths) or 6
+
+        pdf_path = build_pdf(
+            panel_paths=panel_paths,
+            cover_path=cover_path,
+            title=story.title or "Comic",
+            style_name=style["name"],
+            share_url=share_url,
+            layout=story.panel_layout or "2x3",
+            paper_hex="#FAF7EE",
+            border_hex=style["border_color"],
+            font_candidates=style.get("font_candidates"),
+            output_filename=f"comic_{story.id}.pdf",
+            style_id=style["id"],
+            tier_id=tier_id,
+        )
+        if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
+            logger.error(
+                "[pdf rebuild] story=%s build_pdf returned empty file", story.id
+            )
+            return None
+        logger.info(
+            "[pdf rebuild] story=%s rebuilt at %s (%d bytes)",
+            story.id,
+            pdf_path,
+            os.path.getsize(pdf_path),
+        )
+        return pdf_path
+    except Exception as e:
+        logger.error("[pdf rebuild] story=%s FAILED: %s", story.id, e, exc_info=True)
+        return None
+
+        cover_path = (
+            story.cover_path
+            if story.cover_path and os.path.exists(story.cover_path)
+            else None
+        )
+        share_url = f"https://comicme.app/c/{story.share_token or story.id}"
+
+        try:
+            layout_cfg = load_layout(style["id"], tier_id)
+            panels_per_page = len(layout_cfg.get("panels", [])) or len(panel_paths)
+        except Exception:
+            panels_per_page = len(panel_paths) or 6
+
+        pdf_path = build_pdf(
+            panel_paths=panel_paths,
+            cover_path=cover_path,
+            title=story.title or "Comic",
+            style_name=style["name"],
+            share_url=share_url,
+            layout=story.panel_layout or tier.get("panel_layout", "2x3"),
+            paper_hex="#FAF7EE",
+            border_hex=style["border_color"],
+            font_candidates=style.get("font_candidates"),
+            output_filename=f"comic_{story.id}.pdf",
+            style_id=style["id"],
+            tier_id=tier_id,
+        )
+        logger.info("[pdf rebuild] story=%s rebuilt at %s", story.id, pdf_path)
+        return pdf_path
+    except Exception as e:
+        logger.error("[pdf rebuild] story=%s FAILED: %s", story.id, e, exc_info=True)
+        return None
 
 
 @router.get("/{comic_id}/cover")
@@ -779,8 +918,18 @@ def get_comic_pdf_by_token(share_token: str, db: Session = Depends(get_db)):
         .filter(Story.share_token == share_token, Story.is_comic == 1)
         .first()
     )
-    if not story or not story.pdf_path or not os.path.exists(story.pdf_path):
-        raise HTTPException(status_code=404, detail="PDF not ready")
+    if not story:
+        raise HTTPException(status_code=404, detail="Comic not found")
+    if (
+        not story.pdf_path
+        or not os.path.exists(story.pdf_path)
+        or os.path.getsize(story.pdf_path) == 0
+    ):
+        pdf_path = _rebuild_pdf(story, db)
+        if pdf_path is None:
+            raise HTTPException(status_code=404, detail="PDF not ready")
+        story.pdf_path = pdf_path
+        db.commit()
     return FileResponse(
         story.pdf_path,
         media_type="application/pdf",

@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app.services.font_utils import load_font as _resolve_font
+
 
 LAYOUTS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -39,23 +41,8 @@ def _parse_color(
     return default
 
 
-def _load_font(size: int) -> ImageFont.ImageFont:
-    candidates = [
-        "C:/Windows/Fonts/seguisb.ttf",
-        "C:/Windows/Fonts/arialbd.ttf",
-        "C:/Windows/Fonts/trebucbd.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/comicbd.ttf",
-        "C:/Windows/Fonts/comic.ttf",
-        "C:/Windows/Fonts/impact.ttf",
-    ]
-    for fp in candidates:
-        if os.path.exists(fp):
-            try:
-                return ImageFont.truetype(fp, size)
-            except Exception:
-                continue
-    return ImageFont.load_default()
+def _load_font(size: int) -> ImageFont.FreeTypeFont:
+    return _resolve_font(size)
 
 
 def _draw_text_with_stroke(
@@ -67,17 +54,18 @@ def _draw_text_with_stroke(
     stroke_fill: Optional[Tuple[int, int, int] | Tuple[int, int, int, int]] = None,
     stroke_width: int = 0,
 ) -> None:
-    """Render text with an outline (stroke) drawn underneath it."""
-    x, y = xy
+    """Render text with an outline (stroke) using native Pillow stroke."""
     if stroke_width and stroke_width > 0 and stroke_fill is not None:
-        for ox in range(-stroke_width, stroke_width + 1):
-            for oy in range(-stroke_width, stroke_width + 1):
-                if ox == 0 and oy == 0:
-                    continue
-                if (ox * ox + oy * oy) > (stroke_width * stroke_width):
-                    continue
-                draw.text((x + ox, y + oy), text, font=font, fill=stroke_fill)
-    draw.text((x, y), text, font=font, fill=fill)
+        draw.text(
+            xy,
+            text,
+            font=font,
+            fill=fill,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+        )
+    else:
+        draw.text(xy, text, font=font, fill=fill)
 
 
 def list_available_layouts() -> List[str]:
@@ -174,6 +162,44 @@ def _resize_to_cover(img: Image.Image, target_w: int, target_h: int) -> Image.Im
     return img.resize((nw, nh), Image.LANCZOS)
 
 
+_GEMINI_ASPECTS = [
+    ("1:1", 1.0),
+    ("3:2", 1.5),
+    ("2:3", 0.667),
+    ("3:4", 0.75),
+    ("4:3", 1.333),
+    ("4:5", 0.8),
+    ("5:4", 1.25),
+    ("9:16", 0.5625),
+    ("16:9", 1.778),
+    ("21:9", 2.333),
+]
+
+
+def closest_gemini_aspect(cell_w: int, cell_h: int) -> str:
+    """Return the Gemini aspect ratio string closest to the cell's w/h ratio."""
+    if cell_w <= 0 or cell_h <= 0:
+        return "4:3"
+    target = cell_w / cell_h
+    best = "4:3"
+    best_diff = 999.0
+    for name, ratio in _GEMINI_ASPECTS:
+        diff = abs(ratio - target)
+        if diff < best_diff:
+            best_diff = diff
+            best = name
+    return best
+
+
+def _ratios_match(img_w: int, img_h: int, cell_w: int, cell_h: int) -> bool:
+    """True if the image aspect and cell aspect are close enough to cover-crop."""
+    if img_w <= 0 or img_h <= 0 or cell_w <= 0 or cell_h <= 0:
+        return True
+    img_r = img_w / img_h
+    cell_r = cell_w / cell_h
+    return abs(img_r - cell_r) / max(cell_r, 0.01) < 0.25
+
+
 def _paste_panel(
     sheet: Image.Image,
     panel_path: str,
@@ -191,7 +217,8 @@ def _paste_panel(
         try:
             with Image.open(panel_path) as src:
                 src_rgba = src.convert("RGBA")
-                if zoom == "cover":
+                effective_zoom = zoom
+                if effective_zoom == "cover":
                     fitted = _resize_to_cover(src_rgba, w, h)
                     fx = (w - fitted.width) // 2
                     fy = (h - fitted.height) // 2
@@ -268,6 +295,8 @@ def _draw_header(
     ) -> int:
         bb = draw.textbbox((0, 0), text, font=font)
         text_w = bb[2] - bb[0]
+        if text_w > page_w_for_draw - 20:
+            return bb[3] - bb[1]
         tx = (page_w_for_draw - text_w) // 2 - bb[0]
         ty = cap_top_y - bb[1]
         _draw_text_with_stroke(
@@ -290,24 +319,30 @@ def _draw_header(
             draw.textbbox((0, 0), subtitle.upper(), font=sub_font)[3]
             - draw.textbbox((0, 0), subtitle.upper(), font=sub_font)[1]
         )
+        title_w = (
+            draw.textbbox((0, 0), title_text, font=title_font)[2]
+            - draw.textbbox((0, 0), title_text, font=title_font)[0]
+        )
         gap = 6
         total = title_h + gap + sub_h
-        if total > height - 8:
-            scale = (height - 8) / max(1, total)
-            if scale < 1.0:
-                title_size = max(12, int(title_size * scale))
-                sub_size = max(10, int(sub_size * scale))
-                title_font = _load_font(title_size)
-                sub_font = _load_font(sub_size)
-                title_h = (
-                    draw.textbbox((0, 0), title_text, font=title_font)[3]
-                    - draw.textbbox((0, 0), title_text, font=title_font)[1]
-                )
-                sub_h = (
-                    draw.textbbox((0, 0), subtitle.upper(), font=sub_font)[3]
-                    - draw.textbbox((0, 0), subtitle.upper(), font=sub_font)[1]
-                )
-                total = title_h + gap + sub_h
+        scale = (height - 8) / max(1, total)
+        if title_w > page_w - 20:
+            w_scale = (page_w - 20) / max(1, title_w)
+            scale = min(scale, w_scale)
+        if scale < 1.0:
+            title_size = max(12, int(title_size * scale))
+            sub_size = max(10, int(sub_size * scale))
+            title_font = _load_font(title_size)
+            sub_font = _load_font(sub_size)
+            title_h = (
+                draw.textbbox((0, 0), title_text, font=title_font)[3]
+                - draw.textbbox((0, 0), title_text, font=title_font)[1]
+            )
+            sub_h = (
+                draw.textbbox((0, 0), subtitle.upper(), font=sub_font)[3]
+                - draw.textbbox((0, 0), subtitle.upper(), font=sub_font)[1]
+            )
+            total = title_h + gap + sub_h
         top_pad = max(4, (height - total) // 2)
         title_cap_y = top_pad
         title_bot = _draw_centered(
@@ -434,8 +469,8 @@ def build_page(
         layout.get("header", {}),
         page_w,
         border_color,
-        title,
-        subtitle,
+        title if layout.get("show_title_on_interior", False) else "",
+        subtitle if layout.get("show_title_on_interior", False) else "",
     )
     _draw_footer(
         sheet,

@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from app.config import COMIC_OUTPUT_DIR
 from app.services.page_template import build_page, load_layout
+from app.services.font_utils import load_font as _resolve_font
 
 
 PANELS_PER_PAGE = 6
@@ -66,23 +67,8 @@ def _resize_to_fit(img: Image.Image, target_w: int, target_h: int) -> Image.Imag
 
 def _load_font(
     size: int, candidates: Optional[List[str]] = None
-) -> ImageFont.ImageFont:
-    paths = candidates or [
-        "C:/Windows/Fonts/seguisb.ttf",
-        "C:/Windows/Fonts/arialbd.ttf",
-        "C:/Windows/Fonts/trebucbd.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/comicbd.ttf",
-        "C:/Windows/Fonts/comic.ttf",
-        "C:/Windows/Fonts/impact.ttf",
-    ]
-    for fp in paths:
-        if os.path.exists(fp):
-            try:
-                return ImageFont.truetype(fp, size)
-            except Exception:
-                continue
-    return ImageFont.load_default()
+) -> ImageFont.FreeTypeFont:
+    return _resolve_font(size, candidates)
 
 
 def _wrap_lines(
@@ -116,20 +102,18 @@ def _draw_text_with_stroke(
     stroke_fill: Optional[Tuple[int, int, int] | Tuple[int, int, int, int]] = None,
     stroke_width: int = 0,
 ) -> None:
-    """Render text with a stroke underneath, matching the panel renderer.
-
-    Accepts either 3-tuple (RGB) or 4-tuple (RGBA) colors.
-    """
-    x, y = xy
+    """Render text with native Pillow stroke."""
     if stroke_width and stroke_width > 0 and stroke_fill is not None:
-        for ox in range(-stroke_width, stroke_width + 1):
-            for oy in range(-stroke_width, stroke_width + 1):
-                if ox == 0 and oy == 0:
-                    continue
-                if (ox * ox + oy * oy) > (stroke_width * stroke_width):
-                    continue
-                draw.text((x + ox, y + oy), text, font=font, fill=stroke_fill)
-    draw.text((x, y), text, font=font, fill=fill)
+        draw.text(
+            xy,
+            text,
+            font=font,
+            fill=fill,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+        )
+    else:
+        draw.text(xy, text, font=font, fill=fill)
 
 
 def build_panel_sheet(
@@ -407,7 +391,7 @@ def build_back_cover(
     body = _load_font(28, font_candidates)
     micro = _load_font(20, font_candidates)
 
-    head = "YOUR STORY, REIMAGINED."
+    head = "THE END... OR JUST THE BEGINNING?"
     bb = draw.textbbox((0, 0), head, font=headline)
     tx = (w - (bb[2] - bb[0])) // 2
     _draw_text_with_stroke(
@@ -421,9 +405,9 @@ def build_back_cover(
     )
 
     sub_lines = [
-        "Made with ComicMe in 60 seconds.",
-        "Upload a photo, pick a vibe, and the AI",
-        f"draws you as the hero of a {style_name.lower()} comic.",
+        f"You just starred in a {style_name.lower()} comic.",
+        "Powered by AI, drawn in minutes.",
+        "Make your next adventure at comicme.app.",
     ]
     y = 360
     for ln in sub_lines:
@@ -570,8 +554,35 @@ def build_pdf(
 
     all_paths = [cover_path_tmp] + page_paths_tmp + [back_path_tmp]
     output_path = os.path.join(COMIC_OUTPUT_DIR, output_filename)
-    with open(output_path, "wb") as f:
-        f.write(img2pdf.convert(all_paths))
+
+    if os.path.exists(output_path):
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+
+    pdf_bytes = None
+    try:
+        pdf_bytes = img2pdf.convert(all_paths)
+    except Exception as e:
+        print(f"[build_pdf] img2pdf failed ({type(e).__name__}: {e}); falling back")
+
+    if pdf_bytes:
+        with open(output_path, "wb") as f:
+            f.write(pdf_bytes)
+    else:
+        fallback_pages: List[Image.Image] = []
+        for p in all_paths:
+            with Image.open(p) as im:
+                fallback_pages.append(im.convert("RGB"))
+        if not fallback_pages:
+            raise RuntimeError(f"No pages available to build {output_filename}")
+        first = fallback_pages[0]
+        rest = fallback_pages[1:]
+        first.save(output_path, "PDF", save_all=True, append_images=rest)
+
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError(f"PDF build produced an empty file: {output_filename}")
 
     for tmp in [cover_path_tmp] + page_paths_tmp + [back_path_tmp]:
         try:

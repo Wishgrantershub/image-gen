@@ -31,10 +31,9 @@ COMIC_STYLES: Dict[str, Dict[str, Any]] = {
             "soft_white": "#FFFFFF",
         },
         "font_candidates": [
-            "C:/Windows/Fonts/seguisb.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-            "C:/Windows/Fonts/trebucbd.ttf",
-            "C:/Windows/Fonts/segoeui.ttf",
+            "Oswald-Bold.ttf",
+            "Oswald.ttf",
+            "NotoSans.ttf",
         ],
         "caption_box": {
             "fill": (255, 255, 240, 235),
@@ -95,9 +94,10 @@ COMIC_STYLES: Dict[str, Dict[str, Any]] = {
             "cream": "#FFF1D6",
         },
         "font_candidates": [
-            "C:/Windows/Fonts/comicbd.ttf",
-            "C:/Windows/Fonts/comic.ttf",
-            "C:/Windows/Fonts/segoeui.ttf",
+            "Fredoka-Bold.ttf",
+            "Fredoka.ttf",
+            "Quicksand-Bold.ttf",
+            "NotoSans.ttf",
         ],
         "caption_box": {
             "fill": (255, 241, 214, 235),
@@ -158,9 +158,9 @@ COMIC_STYLES: Dict[str, Dict[str, Any]] = {
             "paper": "#FFFAF0",
         },
         "font_candidates": [
-            "C:/Windows/Fonts/impact.ttf",
-            "C:/Windows/Fonts/seguisb.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
+            "Bangers.ttf",
+            "Oswald-Bold.ttf",
+            "NotoSans.ttf",
         ],
         "caption_box": {
             "fill": (255, 250, 240, 235),

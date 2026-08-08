@@ -1,0 +1,50 @@
+{
+  "layout_type": "classic",
+  "style": "manga",
+  "tier": "deluxe",
+  "page_size": [1200, 1600],
+  "page_bg": "#FAF7EE",
+  "page_bg_pattern": "screentone",
+  "screentone_dot_color": "#C9C5B5",
+  "screentone_dot_size": 2,
+  "screentone_spacing": 8,
+  "border_color": "#0A0A0A",
+  "border_width": 3,
+  "panel_border_radius": 0,
+  "header": {
+    "height": 50,
+    "title_size": 22,
+    "subtitle_size": 11,
+    "title_color": "#0A0A0A",
+    "subtitle_color": "#5A5A5A",
+    "show_subtitle": true
+  },
+  "footer": {
+    "height": 32,
+    "text": "MADE WITH COMICME",
+    "color": "#0A0A0A",
+    "size": 11
+  },
+  "margin_x": 32,
+  "margin_top": 32,
+  "margin_bottom": 28,
+  "gutter": 8,
+  "narration_box_style": "manga_slab",
+  "show_page_number": true,
+  "show_panel_number_badge": false,
+  "show_title_on_interior": false,
+  "panels": [
+    {"x": 32,  "y": 50,   "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 316, "y": 50,   "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 600, "y": 50,   "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 884, "y": 50,   "w": 284, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 32,  "y": 418,  "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 316, "y": 418,  "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 600, "y": 418,  "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 884, "y": 418,  "w": 284, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 32,  "y": 786,  "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 316, "y": 786,  "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 600, "y": 786,  "w": 276, "h": 360, "shape": "rect", "zoom": "cover"},
+    {"x": 884, "y": 786,  "w": 284, "h": 360, "shape": "rect", "zoom": "cover"}
+  ]
+}

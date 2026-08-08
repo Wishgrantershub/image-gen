@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     COMIC_DEFAULT_PANELS: int = 6
     COMIC_MAX_PANELS: int = 8
 
+    COMIC_PANEL_MAX_ATTEMPTS: int = 3
+    COMIC_PANEL_IMAGEN_FALLBACK: bool = True
+    COMIC_QA_ENABLED: bool = False
+    COMIC_QA_RETRY: int = 1
+    COMIC_PANEL_MIN_SIZE: int = 400
+    COMIC_PANEL_BATCH_SIZE: int = 1
+
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_LIVE_MODE: bool = False
@@ -78,6 +85,11 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = ""
     R2_PUBLIC_URL: str = ""
 
+    # --- Resend (email delivery for completed comics) ---
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "ComicMe <onboarding@resend.dev>"
+    COMIC_EMAIL_ENABLED: bool = True
+
     class Config:
         env_file = ".env"
         extra = "ignore"
@@ -107,22 +119,22 @@ def neon_database_url() -> str:
     """Return the Postgres URL to use at runtime.
 
     Priority:
-      1. If ``DB_HOST`` is set, build the URL from
-         ``DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME/DB_SSLMODE``.
-         Split vars win when present (explicit Neon UX).
-      2. Otherwise respect an explicit non-SQLite ``DATABASE_URL``
-         (lets you point at any DB by URL).
+      1. If ``DATABASE_URL`` is set and is *not* a sqlite URL, use
+         it as-is (lets you point at any DB by URL).
+      2. Otherwise, if ``DB_HOST`` is set, build the URL from
+         ``DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME/DB_SSLMODE``
+         (explicit Neon UX for Railway deploy).
       3. Fall back to local SQLite so dev keeps working.
     """
+    explicit = (settings.DATABASE_URL or "").strip()
+    if explicit and not explicit.startswith("sqlite"):
+        return explicit
     if settings.DB_HOST:
         return (
             f"postgresql+psycopg://{settings.DB_USER}:{settings.DB_PASSWORD}"
             f"@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
             f"?sslmode={settings.DB_SSLMODE}"
         )
-    explicit = (settings.DATABASE_URL or "").strip()
-    if explicit and not explicit.startswith("sqlite"):
-        return explicit
     return "sqlite:///./diffrun.db"
 
 

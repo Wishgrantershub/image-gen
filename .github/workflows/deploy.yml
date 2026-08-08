@@ -1,0 +1,52 @@
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AZURE_RESOURCE_GROUP: rg-comicme
+  AZURE_CONTAINER_APP: comicme-api
+  AZURE_CONTAINER_ENV: comicme-env
+  AZURE_ACR_NAME: comicmeacr
+  AZURE_REGION: eastus2
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.AZURE_ACR_NAME }}.azurecr.io
+
+      - name: Build and push image
+        uses: azure/docker-build-push-action@v1
+        with:
+          push: true
+          tags: ${{ env.AZURE_ACR_NAME }}.azurecr.io/comicme-backend:${{ github.sha }}
+          dockerfile: ./Dockerfile
+
+      - name: Deploy to Container Apps
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          resourceGroup: ${{ env.AZURE_RESOURCE_GROUP }}
+          containerAppName: ${{ env.AZURE_CONTAINER_APP }}
+          environmentName: ${{ env.AZURE_CONTAINER_ENV }}
+          imageToDeploy: ${{ env.AZURE_ACR_NAME }}.azurecr.io/comicme-backend:${{ github.sha }}

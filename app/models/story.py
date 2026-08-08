@@ -55,6 +55,7 @@ class Story(Base):
     paid_at = Column(DateTime, nullable=True)
     pdf_storage_key = Column(String, nullable=True)
     pdf_storage_url = Column(String, nullable=True)
+    customer_email = Column(String, nullable=True)
 
     user = relationship("User", back_populates="stories")
     child = relationship("Child", back_populates="stories")

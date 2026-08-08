@@ -4,21 +4,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app.services.font_utils import load_font as _resolve_font
+
 
 class TextRenderService:
-    def _load_font(self, font_size: int) -> ImageFont.ImageFont:
-        font_candidates = [
-            "C:/Windows/Fonts/trebuc.ttf",
-            "C:/Windows/Fonts/segoeui.ttf",
-            "C:/Windows/Fonts/arial.ttf",
-        ]
-        for font_path in font_candidates:
-            if os.path.exists(font_path):
-                try:
-                    return ImageFont.truetype(font_path, font_size)
-                except Exception:
-                    continue
-        return ImageFont.load_default()
+    def _load_font(self, font_size: int) -> ImageFont.FreeTypeFont:
+        return _resolve_font(font_size)
 
     def get_page_text_box(
         self,
@@ -153,23 +144,8 @@ class TextRenderService:
 
     def _load_bold_font(
         self, font_size: int, candidates: Optional[List[str]] = None
-    ) -> ImageFont.ImageFont:
-        search = candidates or [
-            "C:/Windows/Fonts/seguisb.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-            "C:/Windows/Fonts/trebucbd.ttf",
-            "C:/Windows/Fonts/segoeui.ttf",
-            "C:/Windows/Fonts/comicbd.ttf",
-            "C:/Windows/Fonts/comic.ttf",
-            "C:/Windows/Fonts/impact.ttf",
-        ]
-        for fp in search:
-            if os.path.exists(fp):
-                try:
-                    return ImageFont.truetype(fp, font_size)
-                except Exception:
-                    continue
-        return self._load_font(font_size)
+    ) -> ImageFont.FreeTypeFont:
+        return _resolve_font(font_size, candidates)
 
     @staticmethod
     def _wrap_lines(
@@ -206,23 +182,18 @@ class TextRenderService:
         stroke_fill: Optional[Tuple[int, int, int, int]] = None,
         stroke_width: int = 0,
     ) -> None:
-        """Draw text with an optional outline (stroke) under it.
-
-        If `stroke_width` is 0, falls back to a single draw. Otherwise we render
-        the text 8 times offset by ±w on x and y, then once on top with the
-        real fill. This is the cross-platform way to outline text in PIL since
-        it has no built-in stroke support on all builds.
-        """
-        x, y = xy
+        """Draw text with native Pillow stroke."""
         if stroke_width and stroke_width > 0 and stroke_fill is not None:
-            for ox in range(-stroke_width, stroke_width + 1):
-                for oy in range(-stroke_width, stroke_width + 1):
-                    if ox == 0 and oy == 0:
-                        continue
-                    if (ox * ox + oy * oy) > (stroke_width * stroke_width):
-                        continue
-                    draw.text((x + ox, y + oy), text, font=font, fill=stroke_fill)
-        draw.text((x, y), text, font=font, fill=fill)
+            draw.text(
+                xy,
+                text,
+                font=font,
+                fill=fill,
+                stroke_width=stroke_width,
+                stroke_fill=stroke_fill,
+            )
+        else:
+            draw.text(xy, text, font=font, fill=fill)
 
     @staticmethod
     def _panel_border_box(
@@ -280,6 +251,45 @@ class TextRenderService:
         return (x, y, x + w, y + h)
 
     @staticmethod
+    def _fit_font_to_box(
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        initial_font: ImageFont.ImageFont,
+        max_width: int,
+        max_height: int,
+        font_candidates: Optional[List[str]] = None,
+        min_size: int = 12,
+        line_spacing: int = 4,
+    ) -> Tuple[ImageFont.ImageFont, List[str]]:
+        """Auto-shrink font size until all wrapped lines fit within max_height.
+
+        Returns (fitted_font, wrapped_lines). If text still doesn't fit at
+        min_size, truncates the last visible line with ellipsis.
+        """
+        current_size = getattr(initial_font, "size", 24)
+        font = initial_font
+        lines = TextRenderService._wrap_lines(draw, text, font, max_width)
+        if not lines:
+            return font, lines
+        bbox = draw.textbbox((0, 0), "Ag", font=font)
+        line_h = (bbox[3] - bbox[1]) + line_spacing
+        while line_h * len(lines) > max_height and current_size > min_size:
+            current_size = max(min_size, current_size - 2)
+            font = _resolve_font(current_size, font_candidates)
+            new_lines = TextRenderService._wrap_lines(draw, text, font, max_width)
+            if not new_lines:
+                break
+            lines = new_lines
+            bbox = draw.textbbox((0, 0), "Ag", font=font)
+            line_h = (bbox[3] - bbox[1]) + line_spacing
+        if line_h * len(lines) > max_height and len(lines) > 1:
+            max_visible = max(1, int(max_height // max(1, line_h)))
+            lines = lines[:max_visible]
+            if lines:
+                lines[-1] = lines[-1].rstrip(" .,!?") + "..."
+        return font, lines
+
+    @staticmethod
     def _draw_caption_box(
         draw: ImageDraw.ImageDraw,
         box: Tuple[int, int, int, int],
@@ -287,17 +297,25 @@ class TextRenderService:
         font: ImageFont.ImageFont,
         padding: int,
         style_colors: Dict[str, Tuple[int, int, int, int]],
+        font_candidates: Optional[List[str]] = None,
     ) -> int:
         x1, y1, x2, y2 = box
         draw.rectangle(box, fill=style_colors["fill"], outline=style_colors["border"])
         usable_w = max(20, (x2 - x1) - 2 * padding)
-        lines = TextRenderService._wrap_lines(draw, text, font, usable_w)
+        avail_h = (y2 - y1) - 2 * padding
+        font, lines = TextRenderService._fit_font_to_box(
+            draw,
+            text,
+            font,
+            usable_w,
+            avail_h,
+            font_candidates=font_candidates,
+            line_spacing=4,
+        )
         if not lines:
             return y1
         bbox = draw.textbbox((0, 0), "Ag", font=font)
         line_h = (bbox[3] - bbox[1]) + 4
-        max_lines = max(1, (y2 - y1 - 2 * padding) // max(1, line_h))
-        lines = lines[:max_lines]
         ty = y1 + padding
         for line in lines:
             TextRenderService._draw_text_with_stroke(
@@ -319,27 +337,48 @@ class TextRenderService:
         text: str,
         font: ImageFont.ImageFont,
         style_colors: Dict[str, Tuple[int, int, int, int]],
+        box_pct: Optional[Dict[str, float]] = None,
+        font_candidates: Optional[List[str]] = None,
     ) -> None:
         iw, ih = panel_size
         box_w = max(110, int(iw * 0.34))
         box_h = max(60, int(ih * 0.20))
-        x2 = iw - 8
-        y1 = 8
-        x1 = x2 - box_w
-        y2 = y1 + box_h
+        if box_pct:
+            bx = int(max(0, min(100, box_pct.get("x", 60))) / 100.0 * iw)
+            by = int(max(0, min(100, box_pct.get("y", 5))) / 100.0 * ih)
+            bw = int(max(10, min(100, box_pct.get("w", 34))) / 100.0 * iw)
+            bh = int(max(10, min(100, box_pct.get("h", 20))) / 100.0 * ih)
+            x1 = max(4, min(iw - box_w - 4, bx))
+            y1 = max(4, min(ih - box_h - 4, by))
+            x2 = min(iw - 4, x1 + max(box_w, bw))
+            y2 = min(ih - 4, y1 + max(box_h, bh))
+        else:
+            x2 = iw - 8
+            y1 = 8
+            x1 = x2 - box_w
+            y2 = y1 + box_h
         box = (x1, y1, x2, y2)
         draw.rectangle(
             box, fill=style_colors["fill"], outline=style_colors["border"], width=2
         )
         inner = text.upper()
         usable_w = max(40, (x2 - x1) - 18)
-        lines = TextRenderService._wrap_lines(draw, inner, font, usable_w)
+        avail_h = (y2 - y1) - 12
+        font, lines = TextRenderService._fit_font_to_box(
+            draw,
+            inner,
+            font,
+            usable_w,
+            avail_h,
+            font_candidates=font_candidates,
+            line_spacing=4,
+        )
         if not lines:
             return
         bbox = draw.textbbox((0, 0), "Ag", font=font)
         line_h = (bbox[3] - bbox[1]) + 4
         ty = y1 + 8
-        for line in lines[: int((y2 - y1 - 12) // max(1, line_h))]:
+        for line in lines:
             TextRenderService._draw_text_with_stroke(
                 draw,
                 (x1 + 9, ty),
@@ -358,14 +397,26 @@ class TextRenderService:
         text: str,
         font: ImageFont.ImageFont,
         style_colors: Dict[str, Tuple[int, int, int, int]],
+        box_pct: Optional[Dict[str, float]] = None,
+        font_candidates: Optional[List[str]] = None,
     ) -> None:
         iw, ih = panel_size
         box_w = max(180, int(iw * 0.78))
         box_h = max(56, int(ih * 0.16))
-        x1 = (iw - box_w) // 2
-        y1 = 8
-        x2 = x1 + box_w
-        y2 = y1 + box_h
+        if box_pct:
+            bx = int(max(0, min(100, box_pct.get("x", 10))) / 100.0 * iw)
+            by = int(max(0, min(100, box_pct.get("y", 5))) / 100.0 * ih)
+            bw = int(max(10, min(100, box_pct.get("w", 78))) / 100.0 * iw)
+            bh = int(max(10, min(100, box_pct.get("h", 16))) / 100.0 * ih)
+            x1 = max(4, min(iw - box_w - 4, bx))
+            y1 = max(4, min(ih - box_h - 4, by))
+            x2 = min(iw - 4, x1 + max(box_w, bw))
+            y2 = min(ih - 4, y1 + max(box_h, bh))
+        else:
+            x1 = (iw - box_w) // 2
+            y1 = 8
+            x2 = x1 + box_w
+            y2 = y1 + box_h
         radius = min(22, box_h // 2)
         draw.rounded_rectangle(
             (x1, y1, x2, y2),
@@ -376,13 +427,22 @@ class TextRenderService:
         )
         inner = text.upper()
         usable_w = max(40, (x2 - x1) - 28)
-        lines = TextRenderService._wrap_lines(draw, inner, font, usable_w)
+        avail_h = (y2 - y1) - 16
+        font, lines = TextRenderService._fit_font_to_box(
+            draw,
+            inner,
+            font,
+            usable_w,
+            avail_h,
+            font_candidates=font_candidates,
+            line_spacing=4,
+        )
         if not lines:
             return
         bbox = draw.textbbox((0, 0), "Ag", font=font)
         line_h = (bbox[3] - bbox[1]) + 4
         ty = y1 + 8
-        for line in lines[: int((y2 - y1 - 16) // max(1, line_h))]:
+        for line in lines:
             bb = draw.textbbox((0, 0), line, font=font)
             tx = x1 + ((x2 - x1) - (bb[2] - bb[0])) // 2
             TextRenderService._draw_text_with_stroke(
@@ -403,14 +463,26 @@ class TextRenderService:
         text: str,
         font: ImageFont.ImageFont,
         style_colors: Dict[str, Tuple[int, int, int, int]],
+        box_pct: Optional[Dict[str, float]] = None,
+        font_candidates: Optional[List[str]] = None,
     ) -> None:
         iw, ih = panel_size
         box_w = max(220, int(iw * 0.86))
         box_h = max(60, int(ih * 0.18))
-        x1 = (iw - box_w) // 2
-        y1 = 8
-        x2 = x1 + box_w
-        y2 = y1 + box_h
+        if box_pct:
+            bx = int(max(0, min(100, box_pct.get("x", 7))) / 100.0 * iw)
+            by = int(max(0, min(100, box_pct.get("y", 5))) / 100.0 * ih)
+            bw = int(max(10, min(100, box_pct.get("w", 86))) / 100.0 * iw)
+            bh = int(max(10, min(100, box_pct.get("h", 18))) / 100.0 * ih)
+            x1 = max(4, min(iw - box_w - 4, bx))
+            y1 = max(4, min(ih - box_h - 4, by))
+            x2 = min(iw - 4, x1 + max(box_w, bw))
+            y2 = min(ih - 4, y1 + max(box_h, bh))
+        else:
+            x1 = (iw - box_w) // 2
+            y1 = 8
+            x2 = x1 + box_w
+            y2 = y1 + box_h
         accent = style_colors.get("accent", (255, 215, 0, 255))
         draw.rectangle(
             (x1 - 4, y1 - 4, x2 + 4, y2 + 4),
@@ -426,13 +498,22 @@ class TextRenderService:
         )
         inner = text.upper()
         usable_w = max(40, (x2 - x1) - 24)
-        lines = TextRenderService._wrap_lines(draw, inner, font, usable_w)
+        avail_h = (y2 - y1) - 20
+        font, lines = TextRenderService._fit_font_to_box(
+            draw,
+            inner,
+            font,
+            usable_w,
+            avail_h,
+            font_candidates=font_candidates,
+            line_spacing=4,
+        )
         if not lines:
             return
         bbox = draw.textbbox((0, 0), "Ag", font=font)
         line_h = (bbox[3] - bbox[1]) + 4
         ty = y1 + 10
-        for line in lines[: int((y2 - y1 - 20) // max(1, line_h))]:
+        for line in lines:
             bb = draw.textbbox((0, 0), line, font=font)
             tx = x1 + ((x2 - x1) - (bb[2] - bb[0])) // 2
             TextRenderService._draw_text_with_stroke(
@@ -758,6 +839,7 @@ class TextRenderService:
         bubble_box_pct: Optional[Dict[str, float]] = None,
         caption_box_pct: Optional[Dict[str, float]] = None,
         narration_box_style: str = "default",
+        show_panel_number_badge: bool = True,
     ) -> bool:
         if style_palette is None:
             style_palette = {}
@@ -809,15 +891,33 @@ class TextRenderService:
 
                     if narration_box_style == "manga_slab":
                         self._draw_caption_box_manga_slab(
-                            draw, (iw, ih), caption, font, caption_colors
+                            draw,
+                            (iw, ih),
+                            caption,
+                            font,
+                            caption_colors,
+                            box_pct=caption_box_pct,
+                            font_candidates=font_candidates,
                         )
                     elif narration_box_style == "pixar_rounded":
                         self._draw_caption_box_pixar_rounded(
-                            draw, (iw, ih), caption, font, caption_colors
+                            draw,
+                            (iw, ih),
+                            caption,
+                            font,
+                            caption_colors,
+                            box_pct=caption_box_pct,
+                            font_candidates=font_candidates,
                         )
                     elif narration_box_style == "superhero_block":
                         self._draw_caption_box_superhero_block(
-                            draw, (iw, ih), caption, font, caption_colors
+                            draw,
+                            (iw, ih),
+                            caption,
+                            font,
+                            caption_colors,
+                            box_pct=caption_box_pct,
+                            font_candidates=font_candidates,
                         )
                     else:
                         if caption_box_pct:
@@ -837,6 +937,7 @@ class TextRenderService:
                             font,
                             padding=12,
                             style_colors=caption_colors,
+                            font_candidates=font_candidates,
                         )
 
                 if speech:
@@ -891,31 +992,31 @@ class TextRenderService:
                         font_candidates=font_candidates,
                     )
 
-                num_font = self._load_bold_font(
-                    max(22, int(ih * 0.05)), font_candidates
-                )
-                num = f"{panel_index}"
-                nb = draw.textbbox((0, 0), num, font=num_font)
-                pad = 10
-                circle_r = max(20, (nb[2] - nb[0]) // 2 + 14)
-                cx = iw - border_width - circle_r - 12
-                cy = ih - border_width - circle_r - 12
-                draw.ellipse(
-                    [cx - circle_r, cy - circle_r, cx + circle_r, cy + circle_r],
-                    fill=(0, 0, 0, 220),
-                    outline=(255, 255, 255, 220),
-                )
-                tx = cx - (nb[2] - nb[0]) // 2 - nb[0]
-                ty = cy - (nb[3] - nb[1]) // 2 - nb[1]
-                self._draw_text_with_stroke(
-                    draw,
-                    (tx, ty),
-                    num,
-                    num_font,
-                    fill=(255, 255, 255, 255),
-                    stroke_fill=(0, 0, 0, 220),
-                    stroke_width=2,
-                )
+                if show_panel_number_badge:
+                    num_font = self._load_bold_font(
+                        max(22, int(ih * 0.05)), font_candidates
+                    )
+                    num = f"{panel_index}"
+                    nb = draw.textbbox((0, 0), num, font=num_font)
+                    circle_r = max(20, (nb[2] - nb[0]) // 2 + 14)
+                    cx = iw - border_width - circle_r - 12
+                    cy = ih - border_width - circle_r - 12
+                    draw.ellipse(
+                        [cx - circle_r, cy - circle_r, cx + circle_r, cy + circle_r],
+                        fill=(0, 0, 0, 220),
+                        outline=(255, 255, 255, 220),
+                    )
+                    tx = cx - (nb[2] - nb[0]) // 2 - nb[0]
+                    ty = cy - (nb[3] - nb[1]) // 2 - nb[1]
+                    self._draw_text_with_stroke(
+                        draw,
+                        (tx, ty),
+                        num,
+                        num_font,
+                        fill=(255, 255, 255, 255),
+                        stroke_fill=(0, 0, 0, 220),
+                        stroke_width=2,
+                    )
 
                 image.convert("RGB").save(image_path)
             return True
@@ -931,6 +1032,7 @@ class TextRenderService:
         style_name: str,
         font_candidates: Optional[List[str]] = None,
         border_color: str = "#0B0B0B",
+        style_id: str = "",
     ) -> bool:
         if not os.path.exists(image_path):
             return False
@@ -960,8 +1062,14 @@ class TextRenderService:
                 image.alpha_composite(top_panel, (0, 0))
                 image.alpha_composite(bot_panel, (0, ih - bot_h))
 
+                display_candidates = font_candidates
+                if not display_candidates and style_id:
+                    from app.services.font_utils import style_font_candidates
+
+                    display_candidates = style_font_candidates(style_id, "display")
+
                 title_size = max(48, int(iw * 0.06))
-                title_font = self._load_bold_font(title_size, font_candidates)
+                title_font = self._load_bold_font(title_size, display_candidates)
                 title_text = (title or "YOUR COMIC").upper()
                 lines = self._wrap_lines(draw, title_text, title_font, iw - 80)
                 tb = draw.textbbox((0, 0), "Ag", font=title_font)
@@ -982,7 +1090,7 @@ class TextRenderService:
                     ty += line_h
 
                 sub_size = max(24, int(iw * 0.028))
-                sub_font = self._load_bold_font(sub_size, font_candidates)
+                sub_font = self._load_bold_font(sub_size, display_candidates)
                 sub_text = (
                     f"{style_name} EDITION  -  {subtitle}".upper()
                     if subtitle

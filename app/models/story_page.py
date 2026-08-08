@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
+
 class StoryPage(Base):
     __tablename__ = "story_pages"
 
@@ -12,5 +13,7 @@ class StoryPage(Base):
     image_path = Column(String, nullable=True)
     image_prompt = Column(Text, nullable=True)
     is_preview = Column(Integer, default=0)
+    gen_status = Column(String, nullable=True)
+    gen_notes = Column(Text, nullable=True)
 
     story = relationship("Story", back_populates="pages")
