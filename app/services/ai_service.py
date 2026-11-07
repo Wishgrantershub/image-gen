@@ -7,6 +7,9 @@ from typing import Any, Dict, List, Optional
 import google.generativeai as genai
 from PIL import Image
 import requests
+import logging
+
+logger = logging.getLogger("comicme.ai_service")
 
 from app.config import settings, OUTPUT_DIR, TEMPLATE_BASE_DIR, TEMPLATE_MASK_DIR
 
