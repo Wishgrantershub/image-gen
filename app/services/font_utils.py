@@ -21,27 +21,25 @@ FONTS_DIR = os.path.join(
 
 _STYLE_FONT_MAP = {
     "manga": {
-        "display": ["Oswald-Bold.ttf", "Oswald.ttf", "Bangers.ttf"],
-        "body": ["Oswald.ttf", "NotoSans.ttf"],
+        "display": ["Oswald-Bold.ttf", "Bangers.ttf"],
+        "body": ["C:/Windows/Fonts/comicbd.ttf", "C:/Windows/Fonts/seguisb.ttf", "NotoSans.ttf"],
     },
     "pixar": {
-        "display": ["Fredoka-Bold.ttf", "Fredoka.ttf", "Quicksand-Bold.ttf"],
-        "body": ["Fredoka.ttf", "Quicksand.ttf", "NotoSans.ttf"],
+        "display": ["Fredoka-Bold.ttf", "Bangers.ttf"],
+        "body": ["Fredoka-Bold.ttf", "C:/Windows/Fonts/comicbd.ttf", "Quicksand-Bold.ttf", "NotoSans.ttf"],
     },
     "superhero": {
         "display": ["Bangers.ttf", "Oswald-Bold.ttf"],
-        "body": ["Oswald-Bold.ttf", "Oswald.ttf", "NotoSans.ttf"],
+        "body": ["C:/Windows/Fonts/comicbd.ttf", "C:/Windows/Fonts/trebucbd.ttf", "Fredoka-Bold.ttf", "C:/Windows/Fonts/seguisb.ttf", "NotoSans.ttf"],
     },
 }
 
 _PLATFORM_FALLBACKS = [
-    "C:/Windows/Fonts/seguisb.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
-    "C:/Windows/Fonts/trebucbd.ttf",
-    "C:/Windows/Fonts/segoeui.ttf",
     "C:/Windows/Fonts/comicbd.ttf",
     "C:/Windows/Fonts/comic.ttf",
-    "C:/Windows/Fonts/impact.ttf",
+    "C:/Windows/Fonts/trebucbd.ttf",
+    "C:/Windows/Fonts/seguisb.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/System/Library/Fonts/Helvetica.ttc",
@@ -58,14 +56,51 @@ def style_font_candidates(style_id: str, role: str = "body") -> List[str]:
     out: List[str] = []
     style_map = _STYLE_FONT_MAP.get(style_id, {})
     for name in style_map.get(role, []):
-        p = _bundled_path(name)
-        if p:
-            out.append(p)
-    for name in style_map.get("display", []):
-        p = _bundled_path(name)
-        if p and p not in out:
-            out.append(p)
+        if os.path.isabs(name) and os.path.exists(name):
+            out.append(name)
+        else:
+            p = _bundled_path(name)
+            if p:
+                out.append(p)
     out.extend(_PLATFORM_FALLBACKS)
+    return out
+
+
+def resolve_story_fonts(
+    style_id: str,
+    story_text: str = "",
+    role: str = "body",
+) -> List[str]:
+    """Dynamically determine the best fonts based on style AND the story's mood/theme.
+
+    Body fonts for speech bubbles and narration captions MUST be clean, open,
+    and 100% legible (never unreadable display fonts like Bangers).
+    """
+    text_lower = (story_text or "").lower()
+
+    if role == "display":
+        if any(k in text_lower for k in ["fun", "laugh", "joke", "silly", "party", "candy", "play"]):
+            return [_bundled_path("Fredoka-Bold.ttf"), _bundled_path("Bangers.ttf"), "C:/Windows/Fonts/comicbd.ttf"]
+        return [_bundled_path("Bangers.ttf"), _bundled_path("Oswald-Bold.ttf"), "C:/Windows/Fonts/impact.ttf"]
+
+    # Body fonts: speech bubbles & caption boxes
+    out: List[str] = []
+    body_priorities = [
+        "C:/Windows/Fonts/comicbd.ttf",
+        _bundled_path("Fredoka-Bold.ttf"),
+        "C:/Windows/Fonts/trebucbd.ttf",
+        "C:/Windows/Fonts/seguisb.ttf",
+        _bundled_path("Quicksand-Bold.ttf"),
+        _bundled_path("NotoSans.ttf"),
+    ]
+    for p in body_priorities:
+        if p and os.path.exists(p) and p not in out:
+            out.append(p)
+
+    for p in style_font_candidates(style_id, role):
+        if p not in out:
+            out.append(p)
+
     return out
 
 
@@ -75,23 +110,29 @@ def load_font(
 ) -> ImageFont.FreeTypeFont:
     """Load a TrueType font at `size`, trying candidates then platform fallbacks.
 
-    Candidates may be full paths or bare filenames (e.g. "Bangers.ttf")
-    which are resolved against the bundled FONTS_DIR.
+    Candidates may be full paths or bare filenames (e.g. "comicbd.ttf")
+    which are resolved against bundled FONTS_DIR and C:/Windows/Fonts.
     """
     search: List[str] = []
     for c in candidates or []:
         if not c:
             continue
         if os.path.isabs(c) or "/" in c or "\\" in c:
-            search.append(c)
+            if os.path.exists(c):
+                search.append(c)
         else:
             bundled = os.path.join(FONTS_DIR, c)
+            win = os.path.join("C:/Windows/Fonts", c)
             if os.path.isfile(bundled):
                 search.append(bundled)
-    noto = _bundled_path("NotoSans.ttf")
-    if noto:
-        search.append(noto)
+            elif os.path.isfile(win):
+                search.append(win)
+
     search.extend(_PLATFORM_FALLBACKS)
+    noto = _bundled_path("NotoSans.ttf")
+    if noto and noto not in search:
+        search.append(noto)
+
     for fp in search:
         if fp and os.path.exists(fp):
             try:

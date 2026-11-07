@@ -241,6 +241,13 @@ export const api = {
       method: "DELETE",
     }),
 
+  claimByEmail: (email: string) =>
+    http<ComicResponse[]>("/api/library/claim-by-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    }),
+
   getComicById: (storyId: number) =>
     http<ComicResponse>(`/api/comics/${storyId}`),
 
@@ -280,6 +287,7 @@ export const api = {
     style_id: StyleId;
     tier_id: TierId;
     premise: string;
+    email?: string;
     payment_verified?: boolean;
     razorpay_payment_id?: string;
     razorpay_order_id?: string;
@@ -291,6 +299,7 @@ export const api = {
     fd.append("style_id", args.style_id);
     fd.append("tier_id", args.tier_id);
     fd.append("premise", args.premise);
+    if (args.email) fd.append("email", args.email);
     if (args.payment_verified) fd.append("payment_verified", "true");
     if (args.razorpay_payment_id)
       fd.append("razorpay_payment_id", args.razorpay_payment_id);

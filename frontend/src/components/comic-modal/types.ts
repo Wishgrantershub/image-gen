@@ -26,6 +26,7 @@ export type ComicState = {
   photoName: string | null;
   photoFile: File | null;
   heroName: string;
+  email: string;
   style: StyleKey | null;
   premise: string;
   tier: TierDisplay | null;
@@ -38,6 +39,7 @@ export const initialState: ComicState = {
   photoName: null,
   photoFile: null,
   heroName: "",
+  email: "",
   style: null,
   premise: "",
   tier: null,

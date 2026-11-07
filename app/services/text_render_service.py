@@ -318,14 +318,11 @@ class TextRenderService:
         line_h = (bbox[3] - bbox[1]) + 4
         ty = y1 + padding
         for line in lines:
-            TextRenderService._draw_text_with_stroke(
-                draw,
+            draw.text(
                 (x1 + padding, ty),
                 line,
-                font,
+                font=font,
                 fill=style_colors["text"],
-                stroke_fill=(255, 255, 255, 255),
-                stroke_width=2,
             )
             ty += line_h
         return ty
@@ -341,22 +338,20 @@ class TextRenderService:
         font_candidates: Optional[List[str]] = None,
     ) -> None:
         iw, ih = panel_size
-        box_w = max(110, int(iw * 0.34))
-        box_h = max(60, int(ih * 0.20))
+        target_w = int(min(iw - 24, max(110, (box_pct.get("w", 34) if box_pct else 34) / 100.0 * iw)))
+        target_h = int(min(ih * 0.22, max(48, (box_pct.get("h", 20) if box_pct else 20) / 100.0 * ih)))
         if box_pct:
             bx = int(max(0, min(100, box_pct.get("x", 60))) / 100.0 * iw)
-            by = int(max(0, min(100, box_pct.get("y", 5))) / 100.0 * ih)
-            bw = int(max(10, min(100, box_pct.get("w", 34))) / 100.0 * iw)
-            bh = int(max(10, min(100, box_pct.get("h", 20))) / 100.0 * ih)
-            x1 = max(4, min(iw - box_w - 4, bx))
-            y1 = max(4, min(ih - box_h - 4, by))
-            x2 = min(iw - 4, x1 + max(box_w, bw))
-            y2 = min(ih - 4, y1 + max(box_h, bh))
+            by = int(max(0, min(100, box_pct.get("y", 78))) / 100.0 * ih)
+            x1 = max(8, min(iw - target_w - 8, bx))
+            y1 = max(8, min(ih - target_h - 8, by))
+            x2 = min(iw - 8, x1 + target_w)
+            y2 = min(ih - 8, y1 + target_h)
         else:
-            x2 = iw - 8
-            y1 = 8
-            x1 = x2 - box_w
-            y2 = y1 + box_h
+            x2 = iw - 12
+            y1 = max(8, ih - target_h - 16)
+            x1 = max(8, x2 - target_w)
+            y2 = min(ih - 8, y1 + target_h)
         box = (x1, y1, x2, y2)
         draw.rectangle(
             box, fill=style_colors["fill"], outline=style_colors["border"], width=2
@@ -379,14 +374,11 @@ class TextRenderService:
         line_h = (bbox[3] - bbox[1]) + 4
         ty = y1 + 8
         for line in lines:
-            TextRenderService._draw_text_with_stroke(
-                draw,
+            draw.text(
                 (x1 + 9, ty),
                 line,
-                font,
+                font=font,
                 fill=style_colors["text"],
-                stroke_fill=(255, 255, 255, 255),
-                stroke_width=2,
             )
             ty += line_h
 
@@ -401,23 +393,21 @@ class TextRenderService:
         font_candidates: Optional[List[str]] = None,
     ) -> None:
         iw, ih = panel_size
-        box_w = max(180, int(iw * 0.78))
-        box_h = max(56, int(ih * 0.16))
+        target_w = int(min(iw - 28, max(160, (box_pct.get("w", 65) if box_pct else 65) / 100.0 * iw)))
+        target_h = int(min(ih * 0.20, max(46, (box_pct.get("h", 14) if box_pct else 14) / 100.0 * ih)))
         if box_pct:
             bx = int(max(0, min(100, box_pct.get("x", 10))) / 100.0 * iw)
-            by = int(max(0, min(100, box_pct.get("y", 5))) / 100.0 * ih)
-            bw = int(max(10, min(100, box_pct.get("w", 78))) / 100.0 * iw)
-            bh = int(max(10, min(100, box_pct.get("h", 16))) / 100.0 * ih)
-            x1 = max(4, min(iw - box_w - 4, bx))
-            y1 = max(4, min(ih - box_h - 4, by))
-            x2 = min(iw - 4, x1 + max(box_w, bw))
-            y2 = min(ih - 4, y1 + max(box_h, bh))
+            by = int(max(0, min(100, box_pct.get("y", 80))) / 100.0 * ih)
+            x1 = max(8, min(iw - target_w - 8, bx))
+            y1 = max(8, min(ih - target_h - 8, by))
+            x2 = min(iw - 8, x1 + target_w)
+            y2 = min(ih - 8, y1 + target_h)
         else:
-            x1 = (iw - box_w) // 2
-            y1 = 8
-            x2 = x1 + box_w
-            y2 = y1 + box_h
-        radius = min(22, box_h // 2)
+            x1 = max(12, (iw - target_w) // 2)
+            y1 = max(8, ih - target_h - 16)
+            x2 = min(iw - 12, x1 + target_w)
+            y2 = min(ih - 12, y1 + target_h)
+        radius = min(22, target_h // 2)
         draw.rounded_rectangle(
             (x1, y1, x2, y2),
             radius=radius,
@@ -445,14 +435,11 @@ class TextRenderService:
         for line in lines:
             bb = draw.textbbox((0, 0), line, font=font)
             tx = x1 + ((x2 - x1) - (bb[2] - bb[0])) // 2
-            TextRenderService._draw_text_with_stroke(
-                draw,
+            draw.text(
                 (tx, ty),
                 line,
-                font,
+                font=font,
                 fill=style_colors["text"],
-                stroke_fill=(255, 255, 255, 255),
-                stroke_width=2,
             )
             ty += line_h
 
@@ -467,22 +454,40 @@ class TextRenderService:
         font_candidates: Optional[List[str]] = None,
     ) -> None:
         iw, ih = panel_size
-        box_w = max(220, int(iw * 0.86))
-        box_h = max(60, int(ih * 0.18))
+        inner = text.strip()
+        max_box_w = int(iw * 0.55)
+        font, lines = TextRenderService._fit_font_to_box(
+            draw,
+            inner,
+            font,
+            max_box_w - 24,
+            int(ih * 0.22),
+            font_candidates=font_candidates,
+            line_spacing=4,
+        )
+        if not lines:
+            return
+
+        needed_text_w = max(draw.textbbox((0, 0), ln, font=font)[2] - draw.textbbox((0, 0), ln, font=font)[0] for ln in lines)
+        bbox = draw.textbbox((0, 0), "Ag", font=font)
+        line_h = (bbox[3] - bbox[1]) + 4
+        needed_text_h = line_h * len(lines)
+        target_w = max(160, min(max_box_w, needed_text_w + 32))
+        target_h = max(46, min(int(ih * 0.22), needed_text_h + 20))
+
         if box_pct:
-            bx = int(max(0, min(100, box_pct.get("x", 7))) / 100.0 * iw)
-            by = int(max(0, min(100, box_pct.get("y", 5))) / 100.0 * ih)
-            bw = int(max(10, min(100, box_pct.get("w", 86))) / 100.0 * iw)
-            bh = int(max(10, min(100, box_pct.get("h", 18))) / 100.0 * ih)
-            x1 = max(4, min(iw - box_w - 4, bx))
-            y1 = max(4, min(ih - box_h - 4, by))
-            x2 = min(iw - 4, x1 + max(box_w, bw))
-            y2 = min(ih - 4, y1 + max(box_h, bh))
+            bx = int(max(0, min(100, box_pct.get("x", 10))) / 100.0 * iw)
+            by = int(max(0, min(100, box_pct.get("y", 80))) / 100.0 * ih)
+            x1 = max(8, min(iw - target_w - 8, bx))
+            y1 = max(8, min(ih - target_h - 8, by))
+            x2 = min(iw - 8, x1 + target_w)
+            y2 = min(ih - 8, y1 + target_h)
         else:
-            x1 = (iw - box_w) // 2
-            y1 = 8
-            x2 = x1 + box_w
-            y2 = y1 + box_h
+            x1 = max(12, (iw - target_w) // 2)
+            y1 = max(8, ih - target_h - 16)
+            x2 = min(iw - 12, x1 + target_w)
+            y2 = min(ih - 12, y1 + target_h)
+
         accent = style_colors.get("accent", (255, 215, 0, 255))
         draw.rectangle(
             (x1 - 4, y1 - 4, x2 + 4, y2 + 4),
@@ -496,34 +501,16 @@ class TextRenderService:
             outline=style_colors["border"],
             width=4,
         )
-        inner = text.upper()
-        usable_w = max(40, (x2 - x1) - 24)
-        avail_h = (y2 - y1) - 20
-        font, lines = TextRenderService._fit_font_to_box(
-            draw,
-            inner,
-            font,
-            usable_w,
-            avail_h,
-            font_candidates=font_candidates,
-            line_spacing=4,
-        )
-        if not lines:
-            return
-        bbox = draw.textbbox((0, 0), "Ag", font=font)
-        line_h = (bbox[3] - bbox[1]) + 4
+
         ty = y1 + 10
         for line in lines:
             bb = draw.textbbox((0, 0), line, font=font)
             tx = x1 + ((x2 - x1) - (bb[2] - bb[0])) // 2
-            TextRenderService._draw_text_with_stroke(
-                draw,
+            draw.text(
                 (tx, ty),
                 line,
-                font,
+                font=font,
                 fill=style_colors["text"],
-                stroke_fill=(0, 0, 0, 255),
-                stroke_width=3,
             )
             ty += line_h
 
@@ -923,12 +910,12 @@ class TextRenderService:
                         if caption_box_pct:
                             box = self._pct_to_box(iw, ih, caption_box_pct)
                         else:
-                            cap_h = max(60, int(ih * 0.13))
+                            cap_h = max(50, int(ih * 0.13))
                             box = (
-                                border_width,
-                                border_width,
-                                iw - border_width,
-                                border_width + cap_h,
+                                border_width + 8,
+                                ih - border_width - cap_h - 8,
+                                iw - border_width - 8,
+                                ih - border_width - 8,
                             )
                         self._draw_caption_box(
                             draw,

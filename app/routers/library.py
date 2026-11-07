@@ -44,6 +44,10 @@ class SessionStartResponse(BaseModel):
     is_new: bool
 
 
+class ClaimLibraryRequest(BaseModel):
+    email: str
+
+
 def _serialize_library_item(story: Story) -> ComicResponse:
     """Lightweight serializer for the library grid.
 
@@ -175,3 +179,43 @@ def delete_library_item(
         session[:8] + "...",
     )
     return {"deleted": True, "id": story_id}
+
+
+@router.post("/library/claim-by-email", response_model=List[ComicResponse])
+def claim_library_by_email(
+    req: ClaimLibraryRequest,
+    x_session_token: Optional[str] = Header(default=None, alias="X-Session-Token"),
+    db: Session = Depends(get_db),
+):
+    """Find all comics matching customer_email and link them to the active session.
+
+    Enables frictionless cross-device recovery: entering an email connects
+    comics created on other devices/browsers straight into 'My Comics'.
+    """
+    from app.routers.comics import _serialize_comic
+
+    session = (x_session_token or "").strip()
+    email = (req.email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email address is required.")
+
+    stories = (
+        db.query(Story)
+        .filter(Story.customer_email == email, Story.is_comic == 1)
+        .order_by(Story.created_at.desc())
+        .all()
+    )
+
+    if session:
+        for s in stories:
+            if s.session_token != session:
+                s.session_token = session
+        db.commit()
+
+    logger.info(
+        "[library.claim] email=%s session=%s claimed=%d",
+        email,
+        (session[:8] + "...") if session else "none",
+        len(stories),
+    )
+    return [_serialize_comic(s) for s in stories]

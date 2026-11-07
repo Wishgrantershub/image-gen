@@ -5,6 +5,7 @@ import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ComicDetailModal } from "@/components/library/ComicDetailModal";
 import { ComicModal } from "@/components/comic-modal/ComicModal";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import type { ComicResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -162,6 +163,35 @@ function LibraryPage() {
     }
   };
 
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimEmail, setClaimEmail] = useState("");
+  const [claimLoading, setClaimLoading] = useState(false);
+  const [claimMessage, setClaimMessage] = useState<string | null>(null);
+
+  const handleClaim = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!claimEmail.trim() || !claimEmail.includes("@")) return;
+    setClaimLoading(true);
+    setClaimMessage(null);
+    try {
+      const recovered = await api.claimByEmail(claimEmail.trim());
+      if (recovered && recovered.length > 0) {
+        qc.setQueryData<ComicResponse[]>(["library", "me"], recovered);
+        setClaimMessage(`Found ${recovered.length} comic${recovered.length > 1 ? "s" : ""}! Linked to this device.`);
+        setTimeout(() => {
+          setClaimOpen(false);
+          setClaimMessage(null);
+        }, 1600);
+      } else {
+        setClaimMessage("No comics found matching this email address.");
+      }
+    } catch (err: any) {
+      setClaimMessage(err?.message || "Could not retrieve comics for this email.");
+    } finally {
+      setClaimLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-paper text-ink">
       <SiteNav onOpen={() => setOpen(true)} />
@@ -178,6 +208,16 @@ function LibraryPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              onClick={() => {
+                setClaimMessage(null);
+                setClaimOpen(true);
+              }}
+              variant="outline"
+              className="font-bold ink-border bg-paper"
+            >
+              🔍 Find by Email
+            </Button>
             <Button
               onClick={() => refetch()}
               variant="ghost"
@@ -267,6 +307,50 @@ function LibraryPage() {
         onDeleted={handleDeleted}
         onPaidUpdated={handlePaidUpdated}
       />
+
+      <Dialog open={claimOpen} onOpenChange={setClaimOpen}>
+        <DialogContent className="max-w-md bg-paper ink-border-thick p-6">
+          <DialogTitle className="font-heavy text-2xl text-ink">Find Your Comics</DialogTitle>
+          <p className="text-xs text-ink/70 mt-1 font-medium">
+            Switching devices or opened in a new browser? Enter the email address you used when creating your comic to link them to this device.
+          </p>
+
+          <form onSubmit={handleClaim} className="mt-4 space-y-3">
+            <input
+              type="email"
+              value={claimEmail}
+              onChange={(e) => setClaimEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+              className="w-full ink-border bg-paper px-3 py-2 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-hero/40"
+            />
+
+            {claimMessage && (
+              <div className={`text-xs font-bold p-2 ink-border ${claimMessage.startsWith("Found") ? "bg-zap/30 text-ink" : "bg-hero/10 text-hero"}`}>
+                {claimMessage}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setClaimOpen(false)}
+                className="font-bold text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={claimLoading || !claimEmail.trim()}
+                className="bg-hero text-paper ink-border hard-shadow font-heavy text-xs"
+              >
+                {claimLoading ? "Searching…" : "Find & Connect →"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

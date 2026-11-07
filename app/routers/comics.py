@@ -284,21 +284,19 @@ async def create_comic_anonymous(
             status_code=400, detail="A valid email is required to deliver your comic"
         )
 
+    paid_at = None
     if settings.RAZORPAY_ENABLED:
         from app.routers.payment import verify_razorpay_signature
 
-        if not (razorpay_payment_id and razorpay_order_id and razorpay_signature):
-            raise HTTPException(
-                status_code=400,
-                detail="Razorpay is enabled: payment_id, order_id and signature are required.",
-            )
-        if not verify_razorpay_signature(
-            razorpay_order_id, razorpay_payment_id, razorpay_signature
-        ):
-            raise HTTPException(
-                status_code=400, detail="Invalid Razorpay payment signature."
-            )
-        paid_at = datetime.utcnow()
+        if razorpay_payment_id and razorpay_order_id and razorpay_signature:
+            if not verify_razorpay_signature(
+                razorpay_order_id, razorpay_payment_id, razorpay_signature
+            ):
+                raise HTTPException(
+                    status_code=400, detail="Invalid Razorpay payment signature."
+                )
+            paid_at = datetime.utcnow()
+        # If payment info was omitted, story is created in preview mode; user unlocks on PDF download/view.
     else:
         paid_at = datetime.utcnow()
 
@@ -379,10 +377,9 @@ async def create_comic_anonymous(
         status=StoryStatus.GENERATING,
         share_token=make_share_token(),
         session_token=session_token,
-        customer_email=customer_email,
-        progress_pct=0,
-        progress_step="queued",
-        progress_message="Queued for generation",
+        progress_pct=10,
+        progress_step="canvas",
+        progress_message="Prepping canvas & story script...",
         amount=float(TIER_CONFIG[tier_id]["price_inr"]),
         currency="INR",
         paid_at=paid_at,

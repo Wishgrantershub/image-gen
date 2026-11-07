@@ -52,7 +52,7 @@ export function StepGenerate({ state, set, onDone }: Props) {
           if (cancelled) return;
 
           const pct = Math.max(0, Math.min(100, s.progress_pct || 0));
-          setProgress(pct);
+          setProgress((prev) => Math.max(prev, pct));
           setStepMsg(s.progress_message || s.progress_step || "Working...");
 
           // Reveal panels as they land
@@ -153,16 +153,24 @@ export function StepGenerate({ state, set, onDone }: Props) {
       }
       const tierId: TierId = TIER_NAME_TO_ID[state.tier];
 
-      let payment: RazorpaySuccessResponse | null;
-      try {
-        payment = await charge(tierId);
-      } catch (e: any) {
-        if (!cancelled) fail(`Payment: ${e.message || e}`);
-        return;
-      }
-      if (!payment || cancelled) return;
+      setProgress(8);
+      setStepMsg("Uploading photo & setting up canvas...");
 
-      setStepMsg("Uploading your photo...");
+      let payment: RazorpaySuccessResponse | null = null;
+      try {
+        const cfg = await api.getPaymentConfig();
+        if (!cfg.razorpay_enabled) {
+          const bypass = await api.demoBypass(tierId, state.style!);
+          payment = {
+            razorpay_payment_id: bypass.razorpay_payment_id,
+            razorpay_order_id: bypass.razorpay_order_id,
+            razorpay_signature: bypass.razorpay_signature,
+          };
+        }
+      } catch {
+        // proceed as preview mode
+      }
+
       let created;
       try {
         created = await api.createComicAnonymous({
@@ -171,10 +179,11 @@ export function StepGenerate({ state, set, onDone }: Props) {
           style_id: state.style,
           tier_id: tierId,
           premise: state.premise.trim(),
-          payment_verified: true,
-          razorpay_payment_id: payment.razorpay_payment_id,
-          razorpay_order_id: payment.razorpay_order_id,
-          razorpay_signature: payment.razorpay_signature,
+          email: state.email.trim() || undefined,
+          payment_verified: !!payment,
+          razorpay_payment_id: payment?.razorpay_payment_id,
+          razorpay_order_id: payment?.razorpay_order_id,
+          razorpay_signature: payment?.razorpay_signature,
         });
       } catch (e: any) {
         if (!cancelled) fail(`Upload failed: ${e.message || e}`);
@@ -183,7 +192,8 @@ export function StepGenerate({ state, set, onDone }: Props) {
       if (cancelled) return;
 
       setCurrentToken(created.share_token);
-      setStepMsg("Drawing your comic...");
+      setProgress(15);
+      setStepMsg("Story script generated! Drawing panels...");
       poll(created.share_token);
     };
 
@@ -197,6 +207,8 @@ export function StepGenerate({ state, set, onDone }: Props) {
 
   const err = localError || state.error;
 
+  const isEmailFlow = !!state.email?.trim() && !currentToken;
+
   const retry = () => {
     setLocalError(null);
     set({ error: null });
@@ -208,11 +220,37 @@ export function StepGenerate({ state, set, onDone }: Props) {
   };
 
   // Show up to 12 slots in a 3-col grid regardless of panelCount
-  const displaySlots = Math.min(panelCount, 12);
+  const displaySlots = panelCount;
+
+  if (isEmailFlow && !err) {
+    return (
+      <div className="text-center py-10">
+        <div className="font-display text-4xl text-hero animate-pulse mb-3">
+          {stepMsg}
+        </div>
+        <div className="ink-border-thick bg-paper h-4 overflow-hidden mb-5 max-w-xs mx-auto">
+          <div
+            className="h-full bg-hero transition-all duration-500"
+            style={{ width: `${Math.max(progress, 5)}%` }}
+          />
+        </div>
+        <p className="text-ink/50 font-medium text-xs">
+          Your comic will be emailed to {state.email} in 2-4 minutes.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h3 className="font-heavy text-2xl text-ink mb-1">Inking your comic…</h3>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="font-heavy text-2xl text-ink">Inking your comic…</h3>
+        {state.email && (
+          <span className="text-[10px] font-bold bg-hero/10 text-hero px-2 py-0.5 rounded border border-hero/20">
+            ✉ Email delivery to {state.email}
+          </span>
+        )}
+      </div>
       <p className="text-ink/70 font-medium mb-4 text-sm">{stepMsg}</p>
 
       <div className="ink-border-thick bg-paper h-4 overflow-hidden mb-5">
@@ -251,7 +289,7 @@ export function StepGenerate({ state, set, onDone }: Props) {
                   <img
                     src={imgUrl}
                     alt={`Panel ${panelNum}`}
-                    className="w-full h-full object-cover animate-pop-in"
+                    className="w-full h-full object-contain animate-pop-in"
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1">

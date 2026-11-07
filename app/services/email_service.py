@@ -104,11 +104,15 @@ def send_comic_email(
     for attempt in range(_MAX_RETRIES + 1):
         try:
             idempotency_key = str(uuid.uuid4())
-            email = resend.Emails.send(params, idempotency_key=idempotency_key)
+            email = resend.Emails.send(
+                params,
+                options={"idempotency_key": idempotency_key},
+            )
+            email_id = email.get("id") if isinstance(email, dict) else getattr(email, "id", "?")
             logger.info(
                 "[email] sent to %s (id=%s, attempt=%d/%d)",
                 to_email,
-                getattr(email, "id", "?"),
+                email_id,
                 attempt + 1,
                 _MAX_RETRIES + 1,
             )

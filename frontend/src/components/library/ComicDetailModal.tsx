@@ -291,10 +291,12 @@ export function ComicDetailModal({
             {comic.panels && comic.panels.length > 0 ? (
               <div
                 className={cn(
-                  "grid gap-2",
-                  comic.panel_count <= 6
+                  "grid gap-2 items-start",
+                  comic.panel_layout === "3x4"
                     ? "grid-cols-2 sm:grid-cols-3"
-                    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+                    : comic.panel_layout === "4x6"
+                    ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+                    : "grid-cols-2 sm:grid-cols-3"
                 )}
               >
                 {comic.panels.map((p) => (
@@ -302,22 +304,17 @@ export function ComicDetailModal({
                     key={p.page_number}
                     className="ink-border overflow-hidden bg-paper relative group"
                   >
-                    <div className="aspect-[4/3] bg-paper">
+                    <div className="bg-paper">
                       <img
                         src={api.url(p.image_url)}
                         alt={`Panel ${p.page_number}`}
-                        className="w-full h-full object-cover"
+                        className="w-full h-auto object-contain"
                         loading="lazy"
                       />
                     </div>
                     <div className="absolute top-1 left-1 bg-ink text-paper text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full">
                       {p.page_number}
                     </div>
-                    {p.speech && (
-                      <div className="absolute bottom-0 left-0 right-0 bg-paper/95 px-2 py-1 text-[10px] font-medium text-ink border-t-2 border-ink line-clamp-2">
-                        {p.speech}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>

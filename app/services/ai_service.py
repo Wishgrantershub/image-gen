@@ -572,7 +572,7 @@ class GeminiImageService:
         if (
             not panel_image_path
             or not os.path.exists(panel_image_path)
-            or not speech_text
+            or (not speech_text and not caption_text)
         ):
             return default
         try:
@@ -673,6 +673,9 @@ class GeminiImageService:
             )
             result["bubble_box"] = adjusted_box
             result["tail_direction"] = adjusted_tail
+            result["caption_box"] = self._adjust_caption_for_safety(
+                panel_image_path, result["caption_box"]
+            )
             return result
         except Exception as e:
             print(f"Panel layout analysis error: {e}")
@@ -685,6 +688,10 @@ class GeminiImageService:
                 )
                 default["bubble_box"] = adjusted_box
                 default["tail_direction"] = adjusted_tail
+                default["caption_box"] = self._adjust_caption_for_safety(
+                    panel_image_path,
+                    default["caption_box"],
+                )
             except Exception:
                 pass
             return default
@@ -869,24 +876,62 @@ class GeminiImageService:
             "h": round(new_bh / img_h * 100, 1),
         }
 
-        # Adjust tail direction to point toward the speaker (center-bottom of panel)
-        # If bubble is in top half, tail points down; if in bottom half, tail points up
-        bubble_center_y_pct = new_box["y"] + new_box["h"] / 2
-        bubble_center_x_pct = new_box["x"] + new_box["w"] / 2
-        if bubble_center_y_pct < 50:
-            # Bubble is in top half — tail points down toward character
-            if bubble_center_x_pct < 50:
-                new_tail = "down-left"
-            else:
-                new_tail = "down-right"
+        # Adjust tail direction to point directly toward the speaker (detected face or center)
+        if faces:
+            primary_face = max(faces, key=lambda f: f[2] * f[3])
+            fx = primary_face[0] + primary_face[2] / 2
+            fy = primary_face[1] + primary_face[3] / 2
+            vert = "down" if fy > (new_by + new_bh / 2) else "up"
+            horiz = "right" if fx > (new_bx + new_bw / 2) else "left"
+            new_tail = f"{vert}-{horiz}"
         else:
-            # Bubble is in bottom half — tail points up toward character
-            if bubble_center_x_pct < 50:
-                new_tail = "up-left"
-            else:
-                new_tail = "up-right"
+            bubble_center_y_pct = new_box["y"] + new_box["h"] / 2
+            bubble_center_x_pct = new_box["x"] + new_box["w"] / 2
+            vert = "down" if bubble_center_y_pct < 50 else "up"
+            horiz = "left" if bubble_center_x_pct < 50 else "right"
+            new_tail = f"{vert}-{horiz}"
 
         return new_box, new_tail
+
+    def _adjust_caption_for_safety(
+        self,
+        image_path: str,
+        caption_box: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Verify and adjust caption placement so it NEVER covers a character's face."""
+        try:
+            from PIL import Image as PILImage
+
+            with PILImage.open(image_path) as img:
+                img_w, img_h = img.size
+        except Exception:
+            return caption_box
+
+        if not caption_box or img_w <= 0 or img_h <= 0:
+            return caption_box
+
+        faces = self._detect_face_boxes(image_path)
+        if not faces:
+            return caption_box
+
+        bx = float(caption_box.get("x", 5.0)) / 100.0 * img_w
+        by = float(caption_box.get("y", 5.0)) / 100.0 * img_h
+        bw = float(caption_box.get("w", 60.0)) / 100.0 * img_w
+        bh = float(caption_box.get("h", 12.0)) / 100.0 * img_h
+        cap_rect = (bx, by, bx + bw, by + bh)
+
+        overlaps_face = any(self._rects_overlap(cap_rect, f, margin=15) for f in faces)
+        top_face = any(
+            f[1] < img_h * 0.45 and (f[0] < bx + bw and f[2] > bx) for f in faces
+        )
+
+        if overlaps_face or (top_face and by < img_h * 0.35):
+            adjusted = dict(caption_box)
+            adjusted["y"] = 82.0
+            adjusted["position"] = "bottom"
+            return adjusted
+
+        return caption_box
 
     def describe_outfit_from_identity_sheet(
         self,

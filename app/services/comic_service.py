@@ -15,6 +15,8 @@ from app.services.comic_styles import COMIC_STYLES, TIER_CONFIG, get_style, get_
 from app.services.page_template import load_layout, closest_gemini_aspect
 from app.services.pdf_builder import build_hero_panel_cover, build_pdf
 from app.services.text_render_service import text_render_service
+from app.services.font_utils import resolve_story_fonts
+import concurrent.futures
 
 
 import random
@@ -220,38 +222,42 @@ class ComicGenerationService:
         resolution_start = max(climax_start + 1, int(panel_count * 0.9))
 
         prompt = f"""
-You are writing a {panel_count}-panel comic book script starring {name}.
+You are writing an authentic, engaging {panel_count}-panel comic book script starring {name}.
 
 Premise: {premise}
 Style: {style_name} ({style_tagline})
 
 Story arc (scaled to {panel_count} panels):
-- Panels 1-{setup_end}: SETUP — introduce {name} in their ordinary world, a moment of calm or routine
-- Panels {setup_end + 1}-{incite_end}: INCITING INCIDENT — something unusual happens that changes everything
-- Panels {incite_end + 1}-{climax_start - 1}: RISING ACTION — {name} reacts, explores, faces obstacles, discovers clues
-- Panels {climax_start}-{resolution_start - 1}: CLIMAX — the big confrontation, emotional peak, or major reveal
-- Panels {resolution_start}-{panel_count}: RESOLUTION — landing, payoff, signature pose, the "after" beat
+- Panels 1-{setup_end}: SETUP — introduce {name} in action or routine, establishing character and tone
+- Panels {setup_end + 1}-{incite_end}: INCITING INCIDENT — a sudden disruption, clue, alarm, or twist
+- Panels {incite_end + 1}-{climax_start - 1}: RISING ACTION — confrontation, pursuit, struggle, teamwork, or realization
+- Panels {climax_start}-{resolution_start - 1}: CLIMAX — the highest peak of action, power unleashing, or decisive move
+- Panels {resolution_start}-{panel_count}: RESOLUTION — victorious finish, playful punchline, signature hero pose, or closing wink
 
-Dialogue rules:
-- Each panel's dialogue must BUILD on the previous panel. Characters reference what just happened ("That's the same symbol!", "Not this again..."). No standalone non-sequiturs.
-- Write punchy, natural dialogue — how a person ACTUALLY talks when excited, scared, or determined. Not a movie trailer narrator.
-- Vary speech tone across panels: questions, exclamations, realizations, short commands — not just statements.
-- Speech max 10 words. Less is more. A grunt or a one-liner beats a monologue.
-- Captions max 8 words, read like a narrator's voiceover — not a Wikipedia summary.
-
-Good dialogue examples:
-  GOOD: "Wait... that symbol — I've seen it before."
-  BAD:  "I will now investigate this mysterious location."
-  GOOD: "You've gotta be kidding me."
-  BAD:  "I am feeling surprised by this turn of events."
-  GOOD: "Three down. One to go."
-  BAD:  "I have defeated three enemies and one remains."
+COMIC LETTERING & DIALOGUE RULES (CRITICAL):
+1. REAL COMIC PACING: A real comic panel is NOT a silent screenshot with movie-trailer narration. In nearly every panel, {name} (or an adversary/companion) is actively TALKING, THINKING, or YELLING.
+2. SPEECH OVER CAPTIONS: Give at least 80% of panels direct character speech or thought bubbles.
+3. AUTHENTIC COMIC BANTER: Characters speak with vivid emotion, attitude, grit, or humor. Use comic expressions, questions, mid-action gasps, and punchy comebacks:
+   - "Wait — did you hear that?!"
+   - "Hold on tight, this is gonna get bumpy!"
+   - "Not on my watch!"
+   - "Aha! I knew that signal was coming from here."
+   - "Did anyone get the license plate on that boulder?!"
+   - "System breached... we're in."
+4. CAPTIONS ARE FOR SETTING & TIME ONLY:
+   - GOOD caption: "Downtown Neo-City. 02:40 AM." or "Deep beneath the vault..." or "Seconds later..."
+   - BAD caption: "Until the past starts screaming." or "He felt angry." (Never use captions to replace character voice or monologue!)
+   - If no location/time jump is needed in a panel, set "caption": ""
+5. LENGTH & PUNCTUATION:
+   - Speech: 3 to 12 words max. Punchy and readable.
+   - Caption: 2 to 6 words max (or empty string).
+   - Use dynamic punctuation: exclamation marks (!), em-dashes (—), question marks (?), ellipsis (...).
 
 For each panel output EXACTLY this JSON:
 {{
-  "description": "1-2 vivid sentences describing the scene, the action, the camera angle, and the mood. Third person, present tense. NO mention of speech bubbles or text. Keep hand actions simple — 'holds a sword', 'raises a hand', 'points' — avoid complex multi-object manipulation or intricate finger gestures.",
-  "caption": "A short narrator caption (max 8 words) OR empty string if not needed",
-  "speech": "A short line of dialogue in {name}'s voice (max 10 words) OR empty string if no speech",
+  "description": "1-2 vivid sentences describing the scene, character action, background, camera angle, and lighting. Third person, present tense. NO mention of text or speech bubbles. Keep physical hand/finger poses clear and simple.",
+  "caption": "A concise scene-setting tag (e.g. 'Sector 7. Midnight.') OR empty string '' if not needed",
+  "speech": "Punchy line of character dialogue or thought in {name}'s voice (3-12 words) OR empty string ''",
   "bubble_kind": "speech" | "thought" | "shout" | "none",
   "camera": "one of: close-up | medium | wide | extreme-wide | overhead | low-angle",
   "mood": "one of: tense | joyful | mysterious | dramatic | triumphant | sad | epic | funny"
@@ -259,11 +265,10 @@ For each panel output EXACTLY this JSON:
 
 Hard rules:
 - Output ONLY a JSON array of exactly {panel_count} objects, no markdown.
-- No panel should have both a long caption AND a long speech. If both, prefer speech for character moments, caption for narrator beats.
-- Vary the camera angle between panels (no two adjacent panels should share the same camera).
-- Never mention 'speech bubble', 'caption', or 'text' in the description (the renderer adds those).
-- If premise is sparse, invent a vivid, kid-friendly, on-vibe story arc.
-- The last panel should feel like a satisfying ending — a punchline, a hero pose, or a hook for "what's next".
+- At least {max(1, panel_count - 1)} panels MUST have a non-empty "speech".
+- Vary the camera angle between panels (no two adjacent panels share the same camera).
+- Never mention 'speech bubble', 'caption', or 'text' inside 'description'.
+- The final panel must land with a memorable hero pose, funny wrap-up, or triumphant one-liner.
 """.strip()
 
         fallback_panels: List[Dict[str, Any]] = []
@@ -430,7 +435,23 @@ Hard rules:
             except Exception as e:
                 print(f"[ComicService] face_description failed: {e}")
                 face_desc = ""
-            story.face_description = face_desc
+
+            outfit_hints = {
+                "manga": "wearing a distinctive dark high-collar combat jacket with clean white undershirt",
+                "pixar": "wearing a vibrant warm-toned hoodie with rolled sleeves and comfortable denim",
+                "superhero": "wearing a modern hero suit with bold chest emblem and streamlined trim",
+            }
+            chosen_outfit = outfit_hints.get(
+                style["id"], "wearing a signature jacket with consistent colors"
+            )
+            if face_desc:
+                full_character_anchor = (
+                    f"{face_desc}. Signature outfit across all panels: {chosen_outfit}."
+                )
+            else:
+                full_character_anchor = f"{child.name}, {chosen_outfit}."
+
+            story.face_description = full_character_anchor
             db.commit()
 
             panel_paths: List[str] = []
@@ -455,224 +476,240 @@ Hard rules:
             span = 55
             per_panel = span / max(1, panel_count)
 
-            for idx, panel_data in enumerate(script, start=1):
-                pct = int(base_pct + (idx - 1) * per_panel)
-                self._update_progress(
-                    db,
-                    story,
-                    f"panel_{idx}",
-                    f"Drawing panel {idx} of {panel_count}...",
-                    pct,
-                )
+            # Resolve story-driven typography based on story genre/mood and description
+            story_context_text = f"{story.title or ''} {story.premise or ''} {' '.join(p.get('description', '') for p in script)}"
+            story_fonts = resolve_story_fonts(
+                style_id=style["id"],
+                story_text=story_context_text,
+                role="body",
+            )
 
-                description = panel_data.get("description", "").strip()
-                bubble_layout = self._resolve_bubble_layout(
-                    idx - 1, panel_count, panel_data.get("bubble_kind", "speech")
-                )
+            # Extract primitive values so concurrent worker threads NEVER touch SQLAlchemy objects or sessions
+            child_photo_str = str(child.photo_path) if (child and child.photo_path) else None
+            face_desc_str = str(story.face_description or "")
+            story_id_int = story.id
+            child_name_str = child.name if child else "Hero"
 
-                best_panel_path: Optional[str] = None
-                panel_aspect = _aspect_for_panel(idx)
+            # Worker function for parallel image generation (runs purely network/image tasks, no DB access)
+            def _generate_single_panel_image(p_idx: int, p_data: dict):
+                p_desc = p_data.get("description", "").strip()
+                p_bubble_layout = self._resolve_bubble_layout(
+                    p_idx - 1, panel_count, p_data.get("bubble_kind", "speech")
+                )
+                p_aspect = _aspect_for_panel(p_idx)
+                p_best_path: Optional[str] = None
+
                 for attempt in range(1, settings.COMIC_MAX_RETRIES + 1):
                     panel_img = (
                         ai_service.image_generation_service.generate_comic_panel(
-                            panel_description=description,
-                            child_photo_path=child.photo_path,
+                            panel_description=p_desc,
+                            child_photo_path=child_photo_str,
                             identity_sheet_path=identity_sheet_path,
                             style_suffix=style["style_suffix"],
                             style_name=style["name"],
-                            panel_index=idx,
+                            panel_index=p_idx,
                             panel_count=panel_count,
-                            bubble_quadrant=bubble_layout["quadrant"],
-                            previous_panel_path=previous_panel_path,
-                            character_description=story.face_description or "",
-                            panel_aspect=panel_aspect,
+                            bubble_quadrant=p_bubble_layout["quadrant"],
+                            previous_panel_path=None,
+                            character_description=face_desc_str,
+                            panel_aspect=p_aspect,
                         )
                     )
-                    if panel_img is None:
-                        continue
-                    panel_filename = (
-                        f"comic_{story.id}_panel_{idx}_attempt_{attempt}.png"
-                    )
-                    saved = ai_service.image_generation_service.save_comic_panel(
-                        panel_img, panel_filename
-                    )
-                    if best_panel_path is None:
-                        best_panel_path = saved
-                    else:
-                        try:
-                            os.remove(best_panel_path)
-                        except OSError:
-                            pass
-                        best_panel_path = saved
-                    break
+                    if panel_img is not None:
+                        panel_filename = f"comic_{story_id_int}_panel_{p_idx}_attempt_{attempt}.png"
+                        p_best_path = ai_service.image_generation_service.save_comic_panel(
+                            panel_img, panel_filename
+                        )
+                        break
 
-                if best_panel_path is None:
-                    print(
-                        f"[ComicService] Panel {idx} Nano Banana failed — trying Imagen fallback"
-                    )
+                if p_best_path is None:
+                    print(f"[ComicService] Panel {p_idx} Nano Banana failed — trying Imagen fallback")
                     try:
                         imagen_img = ai_service.image_generation_service.generate_comic_panel_with_imagen(
-                            panel_description=description,
-                            child_photo_path=child.photo_path,
+                            panel_description=p_desc,
+                            child_photo_path=child_photo_str,
                             style_suffix=style["style_suffix"],
                             style_name=style["name"],
+                            panel_index=p_idx,
+                            panel_count=panel_count,
+                            aspect_ratio=p_aspect,
+                            character_description=face_desc_str,
+                        )
+                        if imagen_img is not None:
+                            p_best_path = ai_service.image_generation_service.save_comic_panel(
+                                imagen_img,
+                                f"comic_{story_id_int}_panel_{p_idx}_imagen.png",
+                            )
+                            print(f"[ComicService] Panel {p_idx} saved via Imagen fallback")
+                    except Exception as e:
+                        print(f"[ComicService] Imagen fallback error for panel {p_idx}: {e}")
+
+                return p_idx, p_best_path, p_data, p_bubble_layout, p_aspect
+
+            # Clean user-facing progress message (no technical jargon)
+            self._update_progress(
+                db,
+                story,
+                "drawing_panels",
+                f"Drawing panel 1 of {panel_count}...",
+                base_pct,
+            )
+
+            completed_panels = 0
+
+            # Execute generation in parallel with 3 workers
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, panel_count)) as executor:
+                future_to_idx = {
+                    executor.submit(_generate_single_panel_image, idx, p_data): idx
+                    for idx, p_data in enumerate(script, start=1)
+                }
+                for future in concurrent.futures.as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        idx, best_panel_path, panel_data, bubble_layout, panel_aspect = future.result()
+                    except Exception as exc:
+                        print(f"[ComicService] Panel {idx} worker raised: {exc}")
+                        best_panel_path = None
+                        panel_data = script[idx - 1]
+                        bubble_layout = self._resolve_bubble_layout(
+                            idx - 1, panel_count, panel_data.get("bubble_kind", "speech")
+                        )
+                        panel_aspect = _aspect_for_panel(idx)
+
+                    if best_panel_path is None:
+                        from PIL import Image as PILImage, ImageDraw as PILDraw
+                        ph = PILImage.new(
+                            "RGB",
+                            (settings.COMIC_PANEL_WIDTH, settings.COMIC_PANEL_HEIGHT),
+                            (210, 210, 210),
+                        )
+                        pd = PILDraw.Draw(ph)
+                        pd.rectangle(
+                            [6, 6, settings.COMIC_PANEL_WIDTH - 7, settings.COMIC_PANEL_HEIGHT - 7],
+                            outline=(0, 0, 0),
+                            width=6,
+                        )
+                        placeholder_filename = f"comic_{story_id_int}_panel_{idx}_placeholder.png"
+                        placeholder_path = os.path.join(COMIC_PANEL_DIR, placeholder_filename)
+                        ph.save(placeholder_path)
+                        best_panel_path = placeholder_path
+
+                    final_panel_filename = f"comic_{story_id_int}_panel_{idx}.png"
+                    final_panel_path = os.path.join(
+                        os.path.dirname(best_panel_path), final_panel_filename
+                    )
+                    if best_panel_path != final_panel_path:
+                        if os.path.exists(final_panel_path):
+                            try:
+                                os.remove(final_panel_path)
+                            except OSError:
+                                pass
+                        os.replace(best_panel_path, final_panel_path)
+
+                    speech_text = panel_data.get("speech", "") or ""
+                    caption_text = panel_data.get("caption", "") or ""
+                    bubble_layout_decision: Dict[str, Any] = {
+                        "bubble_box": None,
+                        "caption_box": None,
+                        "bubble_kind": panel_data.get("bubble_kind", "speech"),
+                        "tail_direction": bubble_layout["tail"],
+                    }
+                    if speech_text or caption_text:
+                        try:
+                            layout_decision = (
+                                ai_service.image_generation_service.analyze_panel_layout(
+                                    panel_image_path=final_panel_path,
+                                    speech_text=speech_text,
+                                    caption_text=caption_text,
+                                )
+                            )
+                            bubble_layout_decision.update(layout_decision)
+                        except Exception as e:
+                            print(
+                                f"[ComicService] panel layout analysis failed for {final_panel_path}: {e}"
+                            )
+
+                    resolved_kind = bubble_layout_decision.get(
+                        "bubble_kind"
+                    ) or panel_data.get("bubble_kind", "speech")
+                    resolved_tail = (
+                        bubble_layout_decision.get("tail_direction")
+                        or bubble_layout["tail"]
+                    )
+                    narration_style = self._get_narration_box_style(style["id"], tier_id)
+                    try:
+                        layout_cfg = load_layout(style["id"], tier_id)
+                        border_radius = int(layout_cfg.get("panel_border_radius", 0))
+                        show_badge = bool(layout_cfg.get("show_panel_number_badge", True))
+                    except Exception:
+                        border_radius = 0
+                        show_badge = True
+
+                    try:
+                        text_render_service.render_comic_panel(
+                            image_path=final_panel_path,
+                            caption=caption_text,
+                            speech=speech_text,
+                            bubble_kind=resolved_kind,
+                            bubble_quadrant=bubble_layout["quadrant"],
+                            bubble_tail=resolved_tail,
+                            bubble_style=style["bubble_style"],
+                            style_palette={
+                                "border": style["border_color"],
+                                "caption_box": style["caption_box"],
+                                "bubble_colors": style["bubble_colors"],
+                            },
                             panel_index=idx,
                             panel_count=panel_count,
-                            aspect_ratio=panel_aspect,
-                            character_description=story.face_description or "",
+                            font_candidates=story_fonts,
+                            border_width=style.get("border_width", 6),
+                            border_radius=border_radius,
+                            bubble_box_pct=bubble_layout_decision.get("bubble_box"),
+                            caption_box_pct=bubble_layout_decision.get("caption_box"),
+                            narration_box_style=narration_style,
+                            show_panel_number_badge=show_badge,
                         )
                     except Exception as e:
-                        print(f"[ComicService] Imagen fallback error: {e}")
-                        imagen_img = None
-                    if imagen_img is not None:
-                        best_panel_path = (
-                            ai_service.image_generation_service.save_comic_panel(
-                                imagen_img,
-                                f"comic_{story.id}_panel_{idx}_imagen.png",
-                            )
-                        )
-                        print(f"[ComicService] Panel {idx} saved via Imagen fallback")
+                        print(f"[ComicService] render_comic_panel error for panel {idx}: {e}")
 
-                if best_panel_path is None and panel_paths:
-                    reuse_src = panel_paths[-1]
-                    try:
-                        from PIL import Image as PILImage
-
-                        with PILImage.open(reuse_src) as src:
-                            reused = src.convert("RGB").copy()
-                        best_panel_path = (
-                            ai_service.image_generation_service.save_comic_panel(
-                                reused,
-                                f"comic_{story.id}_panel_{idx}_reuse.png",
-                            )
-                        )
-                        print(
-                            f"[ComicService] Panel {idx} reused adjacent panel as fallback"
-                        )
-                    except Exception as e:
-                        print(f"[ComicService] panel reuse fallback failed: {e}")
-
-                if best_panel_path is None:
-                    print(
-                        f"[ComicService] Panel {idx} all fallbacks failed — gray placeholder"
+                    # Immediately insert StoryPage into DB so modal can stream panel preview live
+                    description = panel_data.get("description", "").strip()
+                    page = StoryPage(
+                        story_id=story.id,
+                        page_number=idx,
+                        text=(
+                            f"[CAPTION] {caption_text}\n"
+                            f"[SPEECH] {speech_text}"
+                        ),
+                        image_prompt=description,
+                        image_path=final_panel_path,
+                        is_preview=1,
+                        gen_status="ok",
+                        gen_notes=panel_aspect,
                     )
-                    from PIL import Image as PILImage, ImageDraw as PILDraw
+                    db.add(page)
+                    db.commit()
 
-                    ph = PILImage.new(
-                        "RGB",
-                        (settings.COMIC_PANEL_WIDTH, settings.COMIC_PANEL_HEIGHT),
-                        (210, 210, 210),
+                    completed_panels += 1
+                    pct = int(base_pct + (completed_panels / panel_count) * (span * 0.75))
+                    self._update_progress(
+                        db,
+                        story,
+                        f"panel_{completed_panels}",
+                        f"Drawing panel {min(panel_count, completed_panels + 1)} of {panel_count}...",
+                        pct,
                     )
-                    pd = PILDraw.Draw(ph)
-                    pd.rectangle(
-                        [
-                            6,
-                            6,
-                            settings.COMIC_PANEL_WIDTH - 7,
-                            settings.COMIC_PANEL_HEIGHT - 7,
-                        ],
-                        outline=(0, 0, 0),
-                        width=6,
-                    )
-                    placeholder_filename = (
-                        f"comic_{story.id}_panel_{idx}_placeholder.png"
-                    )
-                    placeholder_path = os.path.join(
-                        COMIC_PANEL_DIR, placeholder_filename
-                    )
-                    ph.save(placeholder_path)
-                    best_panel_path = placeholder_path
 
-                final_panel_filename = f"comic_{story.id}_panel_{idx}.png"
-                final_panel_path = os.path.join(
-                    os.path.dirname(best_panel_path), final_panel_filename
-                )
-                if best_panel_path != final_panel_path:
-                    if os.path.exists(final_panel_path):
-                        os.remove(final_panel_path)
-                    os.replace(best_panel_path, final_panel_path)
-
-                speech_text = panel_data.get("speech", "") or ""
-                caption_text = panel_data.get("caption", "") or ""
-                bubble_layout_decision: Dict[str, Any] = {
-                    "bubble_box": None,
-                    "caption_box": None,
-                    "bubble_kind": panel_data.get("bubble_kind", "speech"),
-                    "tail_direction": bubble_layout["tail"],
-                }
-                if speech_text:
-                    try:
-                        layout_decision = (
-                            ai_service.image_generation_service.analyze_panel_layout(
-                                panel_image_path=final_panel_path,
-                                speech_text=speech_text,
-                                caption_text=caption_text,
-                            )
-                        )
-                        bubble_layout_decision.update(layout_decision)
-                    except Exception as e:
-                        print(
-                            f"[ComicService] panel layout analysis failed for {final_panel_path}: {e}"
-                        )
-                resolved_kind = bubble_layout_decision.get(
-                    "bubble_kind"
-                ) or panel_data.get("bubble_kind", "speech")
-                resolved_tail = (
-                    bubble_layout_decision.get("tail_direction")
-                    or bubble_layout["tail"]
-                )
-                narration_style = self._get_narration_box_style(style["id"], tier_id)
-                try:
-                    layout_cfg = load_layout(style["id"], tier_id)
-                    border_radius = int(layout_cfg.get("panel_border_radius", 0))
-                    show_badge = bool(layout_cfg.get("show_panel_number_badge", True))
-                except Exception:
-                    border_radius = 0
-                    show_badge = True
-
-                text_render_service.render_comic_panel(
-                    image_path=final_panel_path,
-                    caption=caption_text,
-                    speech=speech_text,
-                    bubble_kind=resolved_kind,
-                    bubble_quadrant=bubble_layout["quadrant"],
-                    bubble_tail=resolved_tail,
-                    bubble_style=style["bubble_style"],
-                    style_palette={
-                        "border": style["border_color"],
-                        "caption_box": style["caption_box"],
-                        "bubble_colors": style["bubble_colors"],
-                    },
-                    panel_index=idx,
-                    panel_count=panel_count,
-                    font_candidates=style.get("font_candidates"),
-                    border_width=style.get("border_width", 6),
-                    border_radius=border_radius,
-                    bubble_box_pct=bubble_layout_decision.get("bubble_box"),
-                    caption_box_pct=bubble_layout_decision.get("caption_box"),
-                    narration_box_style=narration_style,
-                    show_panel_number_badge=show_badge,
-                )
-
-                page = StoryPage(
-                    story_id=story.id,
-                    page_number=idx,
-                    text=(
-                        f"[CAPTION] {panel_data.get('caption', '')}\n"
-                        f"[SPEECH] {panel_data.get('speech', '')}"
-                    ),
-                    image_prompt=description,
-                    image_path=final_panel_path,
-                    is_preview=1,
-                    gen_status="ok",
-                    gen_notes=panel_aspect,
-                )
-                db.add(page)
-                db.commit()
-
-                panel_paths.append(final_panel_path)
-                previous_panel_path = final_panel_path
-                panel_beats.append(_beat_for_panel(idx))
+            # Collect all ordered panels for cover and PDF generation
+            ordered_pages = (
+                db.query(StoryPage)
+                .filter(StoryPage.story_id == story.id)
+                .order_by(StoryPage.page_number.asc())
+                .all()
+            )
+            panel_paths = [p.image_path for p in ordered_pages if p.image_path and os.path.exists(p.image_path)]
+            previous_panel_path = panel_paths[-1] if panel_paths else None
+            panel_beats = [_beat_for_panel(p.page_number) for p in ordered_pages]
 
             self._update_progress(db, story, "cover", "Painting the cover...", 82)
             cover_image = ai_service.image_generation_service.generate_cover_image(
@@ -799,7 +836,15 @@ Hard rules:
                 recipient = story.customer_email or (
                     child.user.email if child and child.user else None
                 )
-                if recipient and "@" in recipient:
+                is_dummy = (
+                    not recipient
+                    or "@" not in recipient
+                    or recipient.endswith(".local")
+                    or recipient.endswith("@comicme.local")
+                    or recipient.startswith("guest+")
+                    or "@example.com" in recipient
+                )
+                if not is_dummy:
                     share_link = (
                         f"https://comicme.app/c/{story.share_token or story.id}"
                     )
@@ -825,8 +870,9 @@ Hard rules:
                         )
                 else:
                     logger.info(
-                        "[comic_svc] story=%s no email on file — skipping email",
+                        "[comic_svc] story=%s email skipped (guest/placeholder: %s)",
                         story.id,
+                        recipient,
                     )
             except Exception as e:
                 logger.warning(

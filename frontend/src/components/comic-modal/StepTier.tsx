@@ -27,6 +27,22 @@ export function StepTier({ state, set }: { state: ComicState; set: (p: Partial<C
           );
         })}
       </div>
+
+      <div className="mt-5">
+        <label className="block font-heavy text-sm text-ink mb-1.5">
+          Where should we email your comic?
+        </label>
+        <input
+          type="email"
+          value={state.email}
+          onChange={(e) => set({ email: e.target.value })}
+          placeholder="you@example.com"
+          className="w-full ink-border bg-paper px-3 py-2.5 text-sm text-ink font-medium focus:outline-none focus:ring-2 focus:ring-hero/40"
+        />
+        <p className="text-xs text-ink/50 mt-1 font-medium">
+          Your comic takes 2-4 minutes to generate. We'll email the PDF right to your inbox.
+        </p>
+      </div>
     </div>
   );
 }

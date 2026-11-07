@@ -35,7 +35,7 @@ export function ComicModal({ open, onOpenChange }: { open: boolean; onOpenChange
     (step === 1 && !!state.photoFile) ||
     (step === 2 && !!state.style) ||
     (step === 3 && state.premise.trim().length >= 4) ||
-    (step === 4 && !!state.tier);
+    (step === 4 && !!state.tier && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(state.email.trim()));
 
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(o) : close())}>
@@ -48,7 +48,7 @@ export function ComicModal({ open, onOpenChange }: { open: boolean; onOpenChange
 
         <div className="p-6 min-h-[340px]">
           {state.result ? (
-            <StepDone result={state.result} onClose={close} />
+            <StepDone result={state.result} email={state.email} onClose={close} />
           ) : (
             <>
               {step === 1 && <StepUpload state={state} set={set} />}
