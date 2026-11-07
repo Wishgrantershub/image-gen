@@ -31,10 +31,10 @@ COPY app/ ./app/
 COPY .env.example .env
 COPY Procfile .
 COPY runtime.txt .
-
+ENV PORT=8000
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" || exit 1
+    CMD python -c "import urllib.request, os; port = os.environ.get('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/healthz')" || exit 1
 
-CMD ["gunicorn", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000", "app.main:app", "--timeout", "300", "--access-logfile", "-", "--error-logfile", "-"]
+CMD exec gunicorn -w 2 -k uvicorn.workers.UvicornWorker -b "0.0.0.0:${PORT}" app.main:app --timeout 300 --access-logfile - --error-logfile -
