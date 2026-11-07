@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import logging
 import os
+import re
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import (
     OUTPUT_DIR,
@@ -34,6 +35,19 @@ app = FastAPI(
 )
 
 
+class NormalizePathMiddleware:
+    """Strip duplicate slashes from request paths (e.g. //api/... -> /api/...) so strict router matches work."""
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] in ("http", "websocket"):
+            raw_path = scope.get("path", "")
+            if "//" in raw_path:
+                scope["path"] = re.sub(r"/+", "/", raw_path)
+        await self.app(scope, receive, send)
+
+
 def _cors_origins() -> list[str]:
     raw = (settings.CORS_ORIGINS or "").strip()
     if not raw:
@@ -49,6 +63,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(NormalizePathMiddleware)
 
 app.include_router(auth.router)
 app.include_router(children.router)
