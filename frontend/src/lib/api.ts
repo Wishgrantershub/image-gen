@@ -1,9 +1,16 @@
 import { getSessionToken } from "@/hooks/use-session";
 
-const API_BASE =
+const rawBase: string =
   (typeof window !== "undefined" && (window as any).__COMICME_API__) ||
   (import.meta as any).env?.VITE_API_BASE ||
   "http://localhost:8000";
+
+const API_BASE = rawBase.replace(/\/+$/, "");
+
+export function buildUrl(path: string): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}${cleanPath}`;
+}
 
 export type StyleId = "manga" | "pixar" | "superhero";
 export type TierId = "basic" | "premium" | "deluxe";
@@ -166,7 +173,7 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   const sessionToken = getSessionToken();
   if (sessionToken) headers["X-Session-Token"] = sessionToken;
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(buildUrl(path), { ...init, headers });
   if (!res.ok) {
     let body: any = null;
     try {
@@ -194,7 +201,7 @@ async function downloadBlob(path: string, filename: string): Promise<void> {
   const headers: Record<string, string> = {};
   const sessionToken = getSessionToken();
   if (sessionToken) headers["X-Session-Token"] = sessionToken;
-  const res = await fetch(`${API_BASE}${path}`, { headers });
+  const res = await fetch(buildUrl(path), { headers });
   if (!res.ok) {
     let body: any = null;
     try {
@@ -217,7 +224,7 @@ async function downloadBlob(path: string, filename: string): Promise<void> {
 
 export const api = {
   base: API_BASE,
-  url: (path: string) => `${API_BASE}${path}`,
+  url: (path: string) => buildUrl(path),
   HttpError,
 
   getStyles: () =>
