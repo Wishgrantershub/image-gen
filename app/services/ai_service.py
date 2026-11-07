@@ -18,14 +18,18 @@ class FacePreparationService:
     def initialize(self):
         if self.app is not None:
             return
-        from insightface.app import FaceAnalysis
+        try:
+            from insightface.app import FaceAnalysis
 
-        self.app = FaceAnalysis(
-            name="buffalo_l",
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-        )
-        self.app.prepare(ctx_id=0, det_size=(640, 640))
-        print("InsightFace initialized")
+            self.app = FaceAnalysis(
+                name="buffalo_l",
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            )
+            self.app.prepare(ctx_id=0, det_size=(640, 640))
+            print("InsightFace initialized")
+        except Exception as e:
+            self.app = None
+            logger.info("[face_prep] optional insightface not available: %s", e)
 
     def prepare_face(self, image_path: str) -> Optional[Any]:
         if self.app is None:
